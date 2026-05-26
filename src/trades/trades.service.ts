@@ -14,6 +14,7 @@ import { RiskManagerService, UserBalance } from './services/risk-manager.service
 import { TradeExecutorService } from './services/trade-executor.service';
 import { RiskManagerService as VelocityRiskManager } from '../risk/risk-manager.service';
 import { ComplianceService } from '../compliance/compliance.service';
+import { TradeLatencyService, TradeStage } from './services/trade-latency.service';
 
 interface SignalData {
   id: string;
@@ -37,125 +38,154 @@ export class TradesService {
     private readonly tradeExecutor: TradeExecutorService,
     private readonly velocityRiskManager: VelocityRiskManager,
     private readonly complianceService: ComplianceService,
+    private readonly tradeLatency: TradeLatencyService,
   ) {}
 
   async executeTrade(dto: ExecuteTradeDto): Promise<TradeResultDto> {
     this.logger.log(`Executing trade for user ${dto.userId}, signal ${dto.signalId}`);
 
-    // Check for duplicate trade
-    const isDuplicate = await this.riskManager.checkDuplicateTrade(dto.userId, dto.signalId);
-    if (isDuplicate) {
-      throw new BadRequestException('A pending trade already exists for this signal');
-    }
+    // Use a temporary flow ID until the persisted trade ID is available
+    const tempFlowId = `${dto.userId}-${dto.signalId}-${Date.now()}`;
+    this.tradeLatency.startFlow(tempFlowId);
 
-    // Get signal data (in production, fetch from SignalsService)
-    const signalData = await this.getSignalData(dto.signalId);
+    try {
+      // ── Stage: VALIDATION ──────────────────────────────────────────────────
+      const signalData = await this.tradeLatency.measureStage(
+        tempFlowId,
+        TradeStage.VALIDATION,
+        async () => {
+          const isDuplicate = await this.riskManager.checkDuplicateTrade(dto.userId, dto.signalId);
+          if (isDuplicate) {
+            throw new BadRequestException('A pending trade already exists for this signal');
+          }
 
-    // Get user balance (in production, fetch from UserService/WalletService)
-    const userBalance = await this.getUserBalance(dto.userId);
+          const signal = await this.getSignalData(dto.signalId);
+          const userBalance = await this.getUserBalance(dto.userId);
 
-    // Compliance Check
-    await this.complianceService.validateTransaction(dto.userId, dto.amount, signalData.baseAsset);
+          await this.complianceService.validateTransaction(dto.userId, dto.amount, signal.baseAsset);
 
-    // Validate trade with velocity checks
-    const validation = await this.riskManager.validateTrade(dto, signalData, userBalance);
-    if (!validation.isValid) {
-      throw new BadRequestException({
-        message: 'Trade validation failed',
-        errors: validation.errors,
-      });
-    }
+          const validation = await this.riskManager.validateTrade(dto, signal, userBalance);
+          if (!validation.isValid) {
+            throw new BadRequestException({
+              message: 'Trade validation failed',
+              errors: validation.errors,
+            });
+          }
 
-    // Additional velocity validation
-    await this.velocityRiskManager.validateTrade(
-      {
-        userId: dto.userId,
-        asset: `${signalData.baseAsset}/${signalData.counterAsset}`,
-        amount: dto.amount,
-        entryPrice: parseFloat(signalData.entryPrice),
-        stopLossPrice: dto.stopLossPrice,
-      },
-      0, // currentOpenPositions - would be calculated in production
-      0, // totalExposureAmount - would be calculated in production
-      parseFloat(userBalance.available),
-    );
+          await this.velocityRiskManager.validateTrade(
+            {
+              userId: dto.userId,
+              asset: `${signal.baseAsset}/${signal.counterAsset}`,
+              amount: dto.amount,
+              entryPrice: parseFloat(signal.entryPrice),
+              stopLossPrice: dto.stopLossPrice,
+            },
+            0,
+            0,
+            parseFloat(userBalance.available),
+          );
 
-    // Create trade record
-    const trade = this.tradeRepository.create({
-      userId: dto.userId,
-      signalId: dto.signalId,
-      side: dto.side,
-      baseAsset: signalData.baseAsset,
-      counterAsset: signalData.counterAsset,
-      entryPrice: signalData.entryPrice,
-      amount: dto.amount.toString(),
-      totalValue: (dto.amount * parseFloat(signalData.entryPrice)).toFixed(8),
-      stopLossPrice: dto.stopLossPrice?.toString() || signalData.stopLossPrice,
-      takeProfitPrice: dto.takeProfitPrice?.toString() || signalData.targetPrice,
-      status: TradeStatus.PENDING,
-    });
+          return { signal, userBalance };
+        },
+      );
 
-    await this.tradeRepository.save(trade);
+      const { signal: signalData_ } = signalData;
 
-    // Update status to executing
-    trade.status = TradeStatus.EXECUTING;
-    await this.tradeRepository.save(trade);
+      // ── Stage: CREATION ────────────────────────────────────────────────────
+      const trade = await this.tradeLatency.measureStage(
+        tempFlowId,
+        TradeStage.CREATION,
+        async () => {
+          const newTrade = this.tradeRepository.create({
+            userId: dto.userId,
+            signalId: dto.signalId,
+            side: dto.side,
+            baseAsset: signalData_.baseAsset,
+            counterAsset: signalData_.counterAsset,
+            entryPrice: signalData_.entryPrice,
+            amount: dto.amount.toString(),
+            totalValue: (dto.amount * parseFloat(signalData_.entryPrice)).toFixed(8),
+            stopLossPrice: dto.stopLossPrice?.toString() || signalData_.stopLossPrice,
+            takeProfitPrice: dto.takeProfitPrice?.toString() || signalData_.targetPrice,
+            status: TradeStatus.PENDING,
+          });
+          await this.tradeRepository.save(newTrade);
+          newTrade.status = TradeStatus.EXECUTING;
+          await this.tradeRepository.save(newTrade);
+          return newTrade;
+        },
+      );
 
-    // Execute trade on Soroban
-    const executionResult = await this.tradeExecutor.executeTrade(trade, dto.walletAddress);
+      // ── Stage: EXECUTION ───────────────────────────────────────────────────
+      const executionResult = await this.tradeLatency.measureStage(
+        trade.id,
+        TradeStage.EXECUTION,
+        () => this.tradeExecutor.executeTrade(trade, dto.walletAddress),
+      );
 
-    if (executionResult.success) {
-      trade.status = TradeStatus.COMPLETED;
-      trade.transactionHash = executionResult.transactionHash;
-      trade.sorobanContractId = executionResult.contractId;
-      trade.feeAmount = executionResult.feeAmount || '0';
-      trade.executedAt = new Date();
+      if (executionResult.success) {
+        // ── Stage: CONFIRMATION ──────────────────────────────────────────────
+        await this.tradeLatency.measureStage(trade.id, TradeStage.CONFIRMATION, async () => {
+          trade.status = TradeStatus.COMPLETED;
+          trade.transactionHash = executionResult.transactionHash;
+          trade.sorobanContractId = executionResult.contractId;
+          trade.feeAmount = executionResult.feeAmount || '0';
+          trade.executedAt = new Date();
 
-      if (executionResult.executedPrice) {
-        trade.entryPrice = executionResult.executedPrice;
-        trade.totalValue = (parseFloat(trade.amount) * parseFloat(executionResult.executedPrice)).toFixed(8);
+          if (executionResult.executedPrice) {
+            trade.entryPrice = executionResult.executedPrice;
+            trade.totalValue = (
+              parseFloat(trade.amount) * parseFloat(executionResult.executedPrice)
+            ).toFixed(8);
+          }
+
+          await this.tradeRepository.save(trade);
+
+          await this.velocityRiskManager.recordTradeExecution({
+            userId: trade.userId,
+            asset: `${trade.baseAsset}/${trade.counterAsset}`,
+            amount: parseFloat(trade.amount),
+            entryPrice: parseFloat(trade.entryPrice),
+          });
+        });
+
+        this.tradeLatency.endFlow(trade.id, 'success');
+        this.logger.log(`Trade ${trade.id} executed successfully. Hash: ${trade.transactionHash}`);
+
+        return {
+          id: trade.id,
+          userId: trade.userId,
+          signalId: trade.signalId,
+          status: trade.status,
+          side: trade.side,
+          baseAsset: trade.baseAsset,
+          counterAsset: trade.counterAsset,
+          entryPrice: trade.entryPrice,
+          amount: trade.amount,
+          totalValue: trade.totalValue,
+          feeAmount: trade.feeAmount,
+          transactionHash: trade.transactionHash,
+          executedAt: trade.executedAt,
+          message: 'Trade executed successfully',
+        };
+      } else {
+        trade.status = TradeStatus.FAILED;
+        trade.errorMessage = executionResult.error;
+        await this.tradeRepository.save(trade);
+
+        this.tradeLatency.endFlow(trade.id, 'failure');
+        this.logger.error(`Trade ${trade.id} failed: ${executionResult.error}`);
+
+        throw new BadRequestException({
+          message: 'Trade execution failed',
+          error: executionResult.error,
+          tradeId: trade.id,
+        });
       }
-
-      await this.tradeRepository.save(trade);
-
-      // Record trade execution for velocity tracking
-      await this.velocityRiskManager.recordTradeExecution({
-        userId: trade.userId,
-        asset: `${trade.baseAsset}/${trade.counterAsset}`,
-        amount: parseFloat(trade.amount),
-        entryPrice: parseFloat(trade.entryPrice),
-      });
-
-      this.logger.log(`Trade ${trade.id} executed successfully. Hash: ${trade.transactionHash}`);
-
-      return {
-        id: trade.id,
-        userId: trade.userId,
-        signalId: trade.signalId,
-        status: trade.status,
-        side: trade.side,
-        baseAsset: trade.baseAsset,
-        counterAsset: trade.counterAsset,
-        entryPrice: trade.entryPrice,
-        amount: trade.amount,
-        totalValue: trade.totalValue,
-        feeAmount: trade.feeAmount,
-        transactionHash: trade.transactionHash,
-        executedAt: trade.executedAt,
-        message: 'Trade executed successfully',
-      };
-    } else {
-      trade.status = TradeStatus.FAILED;
-      trade.errorMessage = executionResult.error;
-      await this.tradeRepository.save(trade);
-
-      this.logger.error(`Trade ${trade.id} failed: ${executionResult.error}`);
-
-      throw new BadRequestException({
-        message: 'Trade execution failed',
-        error: executionResult.error,
-        tradeId: trade.id,
-      });
+    } catch (error) {
+      // Ensure the flow is always finalised even on unexpected errors
+      this.tradeLatency.endFlow(tempFlowId, 'failure');
+      throw error;
     }
   }
 
