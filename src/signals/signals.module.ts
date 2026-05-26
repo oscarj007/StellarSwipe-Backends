@@ -4,7 +4,9 @@ import { BullModule } from '@nestjs/bull';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { Signal } from './entities/signal.entity';
 import { CopiedPosition } from './entities/copied-position.entity';
+import { PremiumSubscription } from './entities/premium-subscription.entity';
 import { SignalsService } from './signals.service';
+import { PremiumSignalService } from './premium-signal.service';
 import { SignalsController } from './signals.controller';
 import {
   SignalVersion,
@@ -26,6 +28,7 @@ import { SignalQuotaService } from './quota/signal-quota.service';
     TypeOrmModule.forFeature([
       Signal,
       CopiedPosition,
+      PremiumSubscription,
       SignalVersion,
       SignalVersionApproval,
       SignalDecay,
@@ -57,6 +60,7 @@ import { SignalQuotaService } from './quota/signal-quota.service';
   ],
   providers: [
     SignalsService,
+    PremiumSignalService,
     SignalVersionService,
     DecayAnalyzerService,
     SignalPerformanceService,
@@ -67,6 +71,7 @@ import { SignalQuotaService } from './quota/signal-quota.service';
   controllers: [SignalsController, SignalVersionController],
   exports: [
     SignalsService,
+    PremiumSignalService,
     SignalVersionService,
     DecayAnalyzerService,
     SignalPerformanceService,

@@ -19,8 +19,13 @@
     "VALIDATION_FAILED": "Nkwenye agaghị nke ọma",
     "RATE_LIMIT_EXCEEDED": "Ario otutu aririọ, biiko nwaa ọzọ ma emechaa",
     "FORBIDDEN": "Iweghị ikike ime omume a",
-    "QUOTA_EXCEEDED": "Oke mgbaama gafere. Oke gị ga-atọghachị na {resetAt}",
-    "WALLET_SYNC_FAILED": "Nhazi ego akpa agaghị nke ọma. Na-anwa ọzọọ...",
-    "CONTRACT_DEPLOYMENT_FAILED": "Ntinye nkwekọrịta agaghị nke ọma mgbe ọnwa {attempts}",
-    "CONTRACT_ALREADY_DEPLOYED": "Nkwekọrịta etinyerela na id {contractId}"
+    "TRADE_NOT_FOUND": "Ahụghị azụmahịa",
+    "TRADE_ACCESS_DENIED": "Ị nweghị ohere ịnweta azụmahịa a",
+    "PREMIUM_SUBSCRIPTION_REQUIRED": "Achọrọ ndebanye aha ọkachamara iji nweta mgbaama a",
+    "PREMIUM_SUBSCRIPTION_EXPIRED": "Ndebanye aha ọkachamara gị agwụla",
+    "SIGNAL_NOT_PREMIUM": "Mgbaama a abụghị mgbaama ọkachamara",
+    "STALE_PRICE": "Data ọnụahịa ochie, enweghị ike iji ya maka azụmahịa",
+    "INSUFFICIENT_LIQUIDITY": "Mmiri ahịa ezughị oke maka azụmahịa a. Nke kacha nta: {minimum}",
+    "PRICE_VALIDATION_FAILED": "Nkwenye ọnụahịa agaghị nke ọma: {reason}",
+    "QUOTE_DEPTH_TOO_LOW": "Omimi akwụkwọ iwu dị ala maka ogo azụmahịa a"
 }

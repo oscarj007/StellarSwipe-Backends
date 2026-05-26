@@ -27,8 +27,13 @@
     "INVALID_PAYMENT_METHOD": "Invalid payment method",
     "PAYMENT_DECLINED": "Payment was declined by the payment provider",
     "INSUFFICIENT_FUNDS": "Insufficient funds for this transaction",
-    "QUOTA_EXCEEDED": "Signal quota exceeded. Your quota resets at {resetAt}",
-    "WALLET_SYNC_FAILED": "Wallet balance sync failed. Retrying...",
-    "CONTRACT_DEPLOYMENT_FAILED": "Contract deployment failed after {attempts} attempts",
-    "CONTRACT_ALREADY_DEPLOYED": "Contract already deployed with id {contractId}"
+    "TRADE_NOT_FOUND": "Trade not found",
+    "TRADE_ACCESS_DENIED": "You do not have access to this trade",
+    "PREMIUM_SUBSCRIPTION_REQUIRED": "A premium subscription is required to access this signal",
+    "PREMIUM_SUBSCRIPTION_EXPIRED": "Your premium subscription has expired",
+    "SIGNAL_NOT_PREMIUM": "This signal is not a premium signal",
+    "STALE_PRICE": "Price data is stale and cannot be used for trade execution",
+    "INSUFFICIENT_LIQUIDITY": "Insufficient liquidity for this trade. Minimum required: {minimum}",
+    "PRICE_VALIDATION_FAILED": "Price validation failed: {reason}",
+    "QUOTE_DEPTH_TOO_LOW": "Order book depth is too low for this trade size"
 }
