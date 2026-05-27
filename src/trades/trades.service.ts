@@ -1,8 +1,17 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Trade, TradeStatus, TradeSide } from './entities/trade.entity';
-import { ExecuteTradeDto, CloseTradeDto, GetUserTradesDto } from './dto/execute-trade.dto';
+import {
+  ExecuteTradeDto,
+  CloseTradeDto,
+  GetUserTradesDto,
+} from './dto/execute-trade.dto';
 import {
   TradeResultDto,
   TradeDetailsDto,
@@ -10,11 +19,17 @@ import {
   UserTradesSummaryDto,
   CloseTradeResultDto,
 } from './dto/trade-result.dto';
-import { RiskManagerService, UserBalance } from './services/risk-manager.service';
+import {
+  RiskManagerService,
+  UserBalance,
+} from './services/risk-manager.service';
 import { TradeExecutorService } from './services/trade-executor.service';
 import { RiskManagerService as VelocityRiskManager } from '../risk/risk-manager.service';
-import { ComplianceService } from '../compliance/compliance.service';
-import { TradeLatencyService, TradeStage } from './services/trade-latency.service';
+import { ComplianceRuleEngineService } from '../compliance/rule-engine/compliance-rule-engine.service';
+import {
+  TradeLatencyService,
+  TradeStage,
+} from './services/trade-latency.service';
 
 interface SignalData {
   id: string;
@@ -37,12 +52,14 @@ export class TradesService {
     private readonly riskManager: RiskManagerService,
     private readonly tradeExecutor: TradeExecutorService,
     private readonly velocityRiskManager: VelocityRiskManager,
-    private readonly complianceService: ComplianceService,
+    private readonly complianceRuleEngine: ComplianceRuleEngineService,
     private readonly tradeLatency: TradeLatencyService,
   ) {}
 
   async executeTrade(dto: ExecuteTradeDto): Promise<TradeResultDto> {
-    this.logger.log(`Executing trade for user ${dto.userId}, signal ${dto.signalId}`);
+    this.logger.log(
+      `Executing trade for user ${dto.userId}, signal ${dto.signalId}`,
+    );
 
     // Use a temporary flow ID until the persisted trade ID is available
     const tempFlowId = `${dto.userId}-${dto.signalId}-${Date.now()}`;
@@ -54,17 +71,31 @@ export class TradesService {
         tempFlowId,
         TradeStage.VALIDATION,
         async () => {
-          const isDuplicate = await this.riskManager.checkDuplicateTrade(dto.userId, dto.signalId);
+          const isDuplicate = await this.riskManager.checkDuplicateTrade(
+            dto.userId,
+            dto.signalId,
+          );
           if (isDuplicate) {
-            throw new BadRequestException('A pending trade already exists for this signal');
+            throw new BadRequestException(
+              'A pending trade already exists for this signal',
+            );
           }
 
           const signal = await this.getSignalData(dto.signalId);
           const userBalance = await this.getUserBalance(dto.userId);
 
-          await this.complianceService.validateTransaction(dto.userId, dto.amount, signal.baseAsset);
+          await this.complianceRuleEngine.evaluateTrade({
+            userId: dto.userId,
+            amount: dto.amount,
+            asset: signal.baseAsset,
+            counterAsset: signal.counterAsset,
+          });
 
-          const validation = await this.riskManager.validateTrade(dto, signal, userBalance);
+          const validation = await this.riskManager.validateTrade(
+            dto,
+            signal,
+            userBalance,
+          );
           if (!validation.isValid) {
             throw new BadRequestException({
               message: 'Trade validation failed',
@@ -104,9 +135,13 @@ export class TradesService {
             counterAsset: signalData_.counterAsset,
             entryPrice: signalData_.entryPrice,
             amount: dto.amount.toString(),
-            totalValue: (dto.amount * parseFloat(signalData_.entryPrice)).toFixed(8),
-            stopLossPrice: dto.stopLossPrice?.toString() || signalData_.stopLossPrice,
-            takeProfitPrice: dto.takeProfitPrice?.toString() || signalData_.targetPrice,
+            totalValue: (
+              dto.amount * parseFloat(signalData_.entryPrice)
+            ).toFixed(8),
+            stopLossPrice:
+              dto.stopLossPrice?.toString() || signalData_.stopLossPrice,
+            takeProfitPrice:
+              dto.takeProfitPrice?.toString() || signalData_.targetPrice,
             status: TradeStatus.PENDING,
           });
           await this.tradeRepository.save(newTrade);
@@ -125,32 +160,39 @@ export class TradesService {
 
       if (executionResult.success) {
         // ── Stage: CONFIRMATION ──────────────────────────────────────────────
-        await this.tradeLatency.measureStage(trade.id, TradeStage.CONFIRMATION, async () => {
-          trade.status = TradeStatus.COMPLETED;
-          trade.transactionHash = executionResult.transactionHash;
-          trade.sorobanContractId = executionResult.contractId;
-          trade.feeAmount = executionResult.feeAmount || '0';
-          trade.executedAt = new Date();
+        await this.tradeLatency.measureStage(
+          trade.id,
+          TradeStage.CONFIRMATION,
+          async () => {
+            trade.status = TradeStatus.COMPLETED;
+            trade.transactionHash = executionResult.transactionHash;
+            trade.sorobanContractId = executionResult.contractId;
+            trade.feeAmount = executionResult.feeAmount || '0';
+            trade.executedAt = new Date();
 
-          if (executionResult.executedPrice) {
-            trade.entryPrice = executionResult.executedPrice;
-            trade.totalValue = (
-              parseFloat(trade.amount) * parseFloat(executionResult.executedPrice)
-            ).toFixed(8);
-          }
+            if (executionResult.executedPrice) {
+              trade.entryPrice = executionResult.executedPrice;
+              trade.totalValue = (
+                parseFloat(trade.amount) *
+                parseFloat(executionResult.executedPrice)
+              ).toFixed(8);
+            }
 
-          await this.tradeRepository.save(trade);
+            await this.tradeRepository.save(trade);
 
-          await this.velocityRiskManager.recordTradeExecution({
-            userId: trade.userId,
-            asset: `${trade.baseAsset}/${trade.counterAsset}`,
-            amount: parseFloat(trade.amount),
-            entryPrice: parseFloat(trade.entryPrice),
-          });
-        });
+            await this.velocityRiskManager.recordTradeExecution({
+              userId: trade.userId,
+              asset: `${trade.baseAsset}/${trade.counterAsset}`,
+              amount: parseFloat(trade.amount),
+              entryPrice: parseFloat(trade.entryPrice),
+            });
+          },
+        );
 
         this.tradeLatency.endFlow(trade.id, 'success');
-        this.logger.log(`Trade ${trade.id} executed successfully. Hash: ${trade.transactionHash}`);
+        this.logger.log(
+          `Trade ${trade.id} executed successfully. Hash: ${trade.transactionHash}`,
+        );
 
         return {
           id: trade.id,
@@ -199,22 +241,27 @@ export class TradesService {
     }
 
     if (trade.status !== TradeStatus.COMPLETED || trade.closedAt) {
-      throw new BadRequestException('Trade cannot be closed. It must be in completed status and not already closed.');
+      throw new BadRequestException(
+        'Trade cannot be closed. It must be in completed status and not already closed.',
+      );
     }
 
     // Get current market price or use provided exit price
-    const exitPrice = dto.exitPrice?.toString() || await this.getCurrentPrice(trade.baseAsset, trade.counterAsset);
+    const exitPrice =
+      dto.exitPrice?.toString() ||
+      (await this.getCurrentPrice(trade.baseAsset, trade.counterAsset));
 
     // Execute close on Soroban
     const closeResult = await this.tradeExecutor.closeTrade(trade, exitPrice);
 
     if (closeResult.success) {
-      const { profitLoss, profitLossPercentage } = this.riskManager.calculateProfitLoss(
-        trade.entryPrice,
-        exitPrice,
-        trade.amount,
-        trade.side === TradeSide.BUY ? 'buy' : 'sell',
-      );
+      const { profitLoss, profitLossPercentage } =
+        this.riskManager.calculateProfitLoss(
+          trade.entryPrice,
+          exitPrice,
+          trade.amount,
+          trade.side === TradeSide.BUY ? 'buy' : 'sell',
+        );
 
       trade.exitPrice = exitPrice;
       trade.profitLoss = profitLoss;
@@ -224,11 +271,17 @@ export class TradesService {
       await this.tradeRepository.save(trade);
 
       // Handle large loss for velocity tracking
-      if (parseFloat(profitLoss) < -1000) { // Loss threshold
-        await this.velocityRiskManager.handleTradeLoss(trade.userId, Math.abs(parseFloat(profitLoss)));
+      if (parseFloat(profitLoss) < -1000) {
+        // Loss threshold
+        await this.velocityRiskManager.handleTradeLoss(
+          trade.userId,
+          Math.abs(parseFloat(profitLoss)),
+        );
       }
 
-      this.logger.log(`Trade ${trade.id} closed. P&L: ${profitLoss} (${profitLossPercentage}%)`);
+      this.logger.log(
+        `Trade ${trade.id} closed. P&L: ${profitLoss} (${profitLossPercentage}%)`,
+      );
 
       return {
         id: trade.id,
@@ -248,7 +301,10 @@ export class TradesService {
     }
   }
 
-  async getTradeById(tradeId: string, userId: string): Promise<TradeDetailsDto> {
+  async getTradeById(
+    tradeId: string,
+    userId: string,
+  ): Promise<TradeDetailsDto> {
     const trade = await this.tradeRepository.findOne({
       where: { id: tradeId, userId },
     });
@@ -279,7 +335,7 @@ export class TradesService {
     }
 
     const trades = await query.getMany();
-    return trades.map(trade => this.mapToTradeDetails(trade));
+    return trades.map((trade) => this.mapToTradeDetails(trade));
   }
 
   async getUserTradesSummary(userId: string): Promise<UserTradesSummaryDto> {
@@ -288,15 +344,26 @@ export class TradesService {
     });
 
     const totalTrades = trades.length;
-    const openTrades = trades.filter(t => t.status === TradeStatus.COMPLETED && !t.closedAt).length;
-    const completedTrades = trades.filter(t => t.closedAt).length;
-    const failedTrades = trades.filter(t => t.status === TradeStatus.FAILED).length;
+    const openTrades = trades.filter(
+      (t) => t.status === TradeStatus.COMPLETED && !t.closedAt,
+    ).length;
+    const completedTrades = trades.filter((t) => t.closedAt).length;
+    const failedTrades = trades.filter(
+      (t) => t.status === TradeStatus.FAILED,
+    ).length;
 
-    const closedTrades = trades.filter(t => t.closedAt && t.profitLoss);
-    const totalProfitLoss = closedTrades.reduce((sum, t) => sum + parseFloat(t.profitLoss || '0'), 0);
-    const winningTrades = closedTrades.filter(t => parseFloat(t.profitLoss || '0') > 0).length;
-    const winRate = closedTrades.length > 0 ? (winningTrades / closedTrades.length) * 100 : 0;
-    const averageProfitLoss = closedTrades.length > 0 ? totalProfitLoss / closedTrades.length : 0;
+    const closedTrades = trades.filter((t) => t.closedAt && t.profitLoss);
+    const totalProfitLoss = closedTrades.reduce(
+      (sum, t) => sum + parseFloat(t.profitLoss || '0'),
+      0,
+    );
+    const winningTrades = closedTrades.filter(
+      (t) => parseFloat(t.profitLoss || '0') > 0,
+    ).length;
+    const winRate =
+      closedTrades.length > 0 ? (winningTrades / closedTrades.length) * 100 : 0;
+    const averageProfitLoss =
+      closedTrades.length > 0 ? totalProfitLoss / closedTrades.length : 0;
 
     return {
       totalTrades,
@@ -309,7 +376,9 @@ export class TradesService {
     };
   }
 
-  async validateTradePreview(dto: ExecuteTradeDto): Promise<TradeValidationResultDto> {
+  async validateTradePreview(
+    dto: ExecuteTradeDto,
+  ): Promise<TradeValidationResultDto> {
     const signalData = await this.getSignalData(dto.signalId);
     const userBalance = await this.getUserBalance(dto.userId);
     return this.riskManager.validateTrade(dto, signalData, userBalance);
@@ -323,7 +392,9 @@ export class TradesService {
       },
     });
 
-    return trades.filter(t => !t.closedAt).map(trade => this.mapToTradeDetails(trade));
+    return trades
+      .filter((t) => !t.closedAt)
+      .map((trade) => this.mapToTradeDetails(trade));
   }
 
   async getTradesBySignal(signalId: string): Promise<TradeDetailsDto[]> {
@@ -332,7 +403,7 @@ export class TradesService {
       order: { createdAt: 'DESC' },
     });
 
-    return trades.map(trade => this.mapToTradeDetails(trade));
+    return trades.map((trade) => this.mapToTradeDetails(trade));
   }
 
   private mapToTradeDetails(trade: Trade): TradeDetailsDto {
@@ -387,7 +458,10 @@ export class TradesService {
     };
   }
 
-  private async getCurrentPrice(_baseAsset: string, _counterAsset: string): Promise<string> {
+  private async getCurrentPrice(
+    _baseAsset: string,
+    _counterAsset: string,
+  ): Promise<string> {
     // In production, call price feed service
     return '0.16000000';
   }

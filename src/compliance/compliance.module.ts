@@ -24,12 +24,28 @@ import { AuditTrailExporterService } from './exporters/audit-trail-exporter.serv
 import { GdprReportGenerator } from './reports/gdpr-report.generator';
 import { FinancialReportGenerator } from './reports/financial-report.generator';
 import { TransactionLimitsModule } from './transaction-limits/transaction-limits.module';
+// Rule engine
+import { ComplianceRuleEngineService } from './rule-engine/compliance-rule-engine.service';
+import { KycStatusRule } from './rule-engine/rules/kyc-status.rule';
+import { GeographicRestrictionRule } from './rule-engine/rules/geographic-restriction.rule';
+import { AmlStatusRule } from './rule-engine/rules/aml-status.rule';
+import { AssetClassRestrictionRule } from './rule-engine/rules/asset-class-restriction.rule';
+import { TransactionLimitRule } from './rule-engine/rules/transaction-limit.rule';
+import { TradeEligibilityDecision } from './rule-engine/entities/trade-eligibility-decision.entity';
 
 @Module({
   imports: [
     ConfigModule,
     ScheduleModule.forRoot(),
-    TypeOrmModule.forFeature([ComplianceLog, SuspiciousActivity, Trade, User, Signal, AuditLog]),
+    TypeOrmModule.forFeature([
+      ComplianceLog,
+      SuspiciousActivity,
+      Trade,
+      User,
+      Signal,
+      AuditLog,
+      TradeEligibilityDecision,
+    ]),
     BullModule.registerQueue({ name: AML_QUEUE }),
     TransactionLimitsModule,
   ],
@@ -46,6 +62,13 @@ import { TransactionLimitsModule } from './transaction-limits/transaction-limits
     AuditTrailExporterService,
     GdprReportGenerator,
     FinancialReportGenerator,
+    // Rule engine
+    ComplianceRuleEngineService,
+    KycStatusRule,
+    GeographicRestrictionRule,
+    AmlStatusRule,
+    AssetClassRestrictionRule,
+    TransactionLimitRule,
   ],
   controllers: [ComplianceController],
   exports: [
@@ -55,6 +78,7 @@ import { TransactionLimitsModule } from './transaction-limits/transaction-limits
     ComplianceService,
     AmlMonitoringService,
     TransactionLimitsModule,
+    ComplianceRuleEngineService,
   ],
 })
 export class ComplianceModule implements NestModule {
