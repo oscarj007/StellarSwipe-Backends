@@ -115,4 +115,29 @@ export class HealthController implements OnApplicationBootstrap {
       () => this.redisHealth.isHealthy('cache'),
     ]);
   }
+
+  /**
+   * #530 — /healthz endpoint for Kubernetes liveness probes.
+   * This is a simplified health check that only checks if the app is running.
+   */
+  @Get('healthz')
+  @HealthCheck()
+  async healthz(): Promise<HealthCheckResult> {
+    return this.health.check([]);
+  }
+
+  /**
+   * #530 — /ready endpoint for Kubernetes readiness probes.
+   * This checks if the backend is ready to accept traffic (DB + cache + external integrations).
+   */
+  @Get('ready')
+  @HealthCheck()
+  async ready(): Promise<HealthCheckResult> {
+    return this.health.check([
+      () => this.databaseHealth.isHealthy('database'),
+      () => this.redisHealth.isHealthy('cache'),
+      () => this.sorobanHealth.isHealthy('soroban'),
+      () => this.stellarHealth.isHealthy('stellar'),
+    ]);
+  }
 }

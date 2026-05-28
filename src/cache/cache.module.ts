@@ -10,6 +10,8 @@ import { CacheMetricsService } from './monitoring/cache-metrics.service';
 import { CacheController } from './cache.controller';
 import { CacheService } from './cache.service';
 import { CacheInvalidationService } from './cache-invalidation.service';
+import { SignalCacheInvalidationListener } from './signal-cache-invalidation.listener';
+import { TradeCacheInvalidationListener } from './trade-cache-invalidation.listener';
 import { ResponseCacheService, ResponseCacheInterceptor } from './response-cache.service';
 import { TradingCacheService } from './trading-cache.service';
 import { CacheWarmupService } from './cache-warmup.service';
@@ -45,6 +47,8 @@ import { CacheWarmupService } from './cache-warmup.service';
     CacheInvalidatorService,
     CacheMetricsService,
     CacheInvalidationService,
+    SignalCacheInvalidationListener,
+    TradeCacheInvalidationListener,
     ResponseCacheService,
     ResponseCacheInterceptor,
     TradingCacheService,
@@ -59,6 +63,8 @@ import { CacheWarmupService } from './cache-warmup.service';
     CacheInvalidatorService,
     CacheMetricsService,
     CacheInvalidationService,
+    SignalCacheInvalidationListener,
+    TradeCacheInvalidationListener,
     ResponseCacheService,
     ResponseCacheInterceptor,
     TradingCacheService,
