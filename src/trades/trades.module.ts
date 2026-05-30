@@ -19,6 +19,7 @@ import { SorobanModule } from '../soroban/soroban.module';
 import { Signal } from '../signals/entities/signal.entity';
 import { BullModule } from '@nestjs/bull';
 import { WebsocketModule } from '../websocket/websocket.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { TxMonitorService } from './services/tx-monitor.service';
 import { MonitorTransactionsJob } from './jobs/monitor-transactions.job';
 import { PartialCloseService } from './partial-close/partial-close.service';

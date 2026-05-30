@@ -19,3 +19,4 @@ import { NotificationProcessor } from './notification.processor';
   exports: [NotificationService, PreferencesService],
 })
 export class NotificationsModule {}
+
