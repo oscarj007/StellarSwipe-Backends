@@ -7,6 +7,7 @@ import * as compression from 'compression';
 import { AppModule } from "./app.module";
 import { GlobalExceptionFilter } from "./common/filters";
 import { ErrorClassificationService } from "./common/error-classification";
+import { RateLimitMiddleware } from './common/middleware/rate-limit.middleware';
 import {
   LoggingInterceptor,
   TransformInterceptor,
@@ -72,6 +73,10 @@ async function bootstrap() {
 
   // Enable compression
   app.use((compression as any)(compressionConfig));
+
+  // Apply global rate limiting middleware before any request reaches route handlers
+  const rateLimitMiddleware = app.get(RateLimitMiddleware);
+  app.use(rateLimitMiddleware.use.bind(rateLimitMiddleware));
 
   // Track in-flight requests for graceful drain
   let inFlightRequests = 0;
