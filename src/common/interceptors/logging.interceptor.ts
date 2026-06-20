@@ -8,11 +8,14 @@ import { Observable } from 'rxjs';
 import { tap, catchError } from 'rxjs/operators';
 import { Request, Response } from 'express';
 import { LoggerService } from '../logger';
-import { v4 as uuidv4 } from 'uuid';
+import { CorrelationIdStore } from '../correlation/correlation-id.store';
 
 @Injectable()
 export class LoggingInterceptor implements NestInterceptor {
-  constructor(private readonly logger: LoggerService) {
+  constructor(
+    private readonly logger: LoggerService,
+    private readonly correlationIdStore: CorrelationIdStore,
+  ) {
     this.logger.setContext(LoggingInterceptor.name);
   }
 
@@ -22,20 +25,22 @@ export class LoggingInterceptor implements NestInterceptor {
     const startTime = Date.now();
 
     const { method, url, body, query, params } = request;
-    const requestId = uuidv4();
-
-    // Add request ID to request object for tracing
-    (request as any).requestId = requestId;
+    // Assigned upstream by CorrelationIdMiddleware; read from the request as a fallback.
+    const correlationId =
+      this.correlationIdStore.getCorrelationId() ??
+      (request as any).correlationId;
+    const userId = (request as any).user?.id ?? (request as any).user?.sub;
 
     // Log incoming request (only in development for body)
     const requestLog: any = {
-      requestId,
+      correlationId,
       method,
       url,
       query,
       params,
       userAgent: request.get('user-agent'),
       ip: request.ip,
+      ...(userId ? { userId } : {}),
     };
 
     // Only log request body in development
@@ -55,11 +60,12 @@ export class LoggingInterceptor implements NestInterceptor {
         const statusCode = response.statusCode;
 
         const responseLog: Record<string, unknown> = {
-          requestId,
+          correlationId,
           method,
           url,
           statusCode,
           duration: `${duration}ms`,
+          ...(userId ? { userId } : {}),
         };
 
         // Only log response body in development
@@ -73,10 +79,11 @@ export class LoggingInterceptor implements NestInterceptor {
         const duration = Date.now() - startTime;
 
         this.logger.error('Request failed', error, {
-          requestId,
+          correlationId,
           method,
           url,
           duration: `${duration}ms`,
+          ...(userId ? { userId } : {}),
         });
 
         throw error;

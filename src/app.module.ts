@@ -17,6 +17,7 @@ import { configSchema } from './config/schemas/config.schema';
 import { StellarConfigService } from './config/stellar.service';
 
 import { LoggerModule } from './common/logger';
+import { CorrelationModule } from './common/correlation';
 import { SentryModule } from './common/sentry';
 import { ErrorClassificationModule } from './common/error-classification/error-classification.module';
 import { CacheModule } from './cache/cache.module';
@@ -161,6 +162,7 @@ import { FreighterModule } from './freighter/freighter.module';
       }),
     }),
 
+    CorrelationModule,
     LoggerModule,
     SentryModule,
     ErrorClassificationModule,

@@ -15,6 +15,8 @@ import {
   SensitiveDataInterceptor,
 } from './common/interceptors';
 import { LoggerService } from './common/logger';
+import { CorrelationIdStore } from './common/correlation/correlation-id.store';
+import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
 import { SentryService } from './common/sentry';
 import { SanitizationPipe } from './common/pipes';
 import { RedisIoAdapter } from './websocket/adapters/redis-io.adapter';
@@ -74,6 +76,12 @@ async function bootstrap() {
   // Enable compression
   app.use((compression as any)(compressionConfig));
 
+  // Assign/propagate the correlation ID before anything else runs, so every
+  // downstream middleware, guard, interceptor and service can tag its logs
+  // with it for the lifetime of the request.
+  const correlationIdMiddleware = app.get(CorrelationIdMiddleware);
+  app.use(correlationIdMiddleware.use.bind(correlationIdMiddleware));
+
   // Apply global rate limiting middleware before any request reaches route handlers
   const rateLimitMiddleware = app.get(RateLimitMiddleware);
   app.use(rateLimitMiddleware.use.bind(rateLimitMiddleware));
@@ -121,7 +129,9 @@ async function bootstrap() {
   // Global interceptors
   app.useGlobalInterceptors(new DeadlockRetryInterceptor());
   app.useGlobalInterceptors(new TimeoutInterceptor(app.get(Reflector)));
-  app.useGlobalInterceptors(new LoggingInterceptor(logger));
+  app.useGlobalInterceptors(
+    new LoggingInterceptor(logger, app.get(CorrelationIdStore)),
+  );
   app.useGlobalInterceptors(new TransformInterceptor());
   app.useGlobalInterceptors(new SensitiveDataInterceptor());
   app.useGlobalInterceptors(app.get(MetricsInterceptor));

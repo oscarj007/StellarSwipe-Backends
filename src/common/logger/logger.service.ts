@@ -2,6 +2,7 @@ import { Injectable, LoggerService as NestLoggerService } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as winston from 'winston';
 import DailyRotateFile from 'winston-daily-rotate-file';
+import { CorrelationIdStore } from '../correlation/correlation-id.store';
 
 /**
  * Winston-based logger service with structured logging
@@ -25,7 +26,10 @@ export class LoggerService implements NestLoggerService {
     'refreshToken',
   ];
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly correlationIdStore: CorrelationIdStore,
+  ) {
     this.initializeLogger();
   }
 
@@ -115,6 +119,18 @@ export class LoggerService implements NestLoggerService {
   }
 
   /**
+   * Base fields attached to every log line: logger context plus the
+   * request-scoped correlation ID, when one is available.
+   */
+  private baseMeta(): Record<string, any> {
+    const correlationId = this.correlationIdStore.getCorrelationId();
+    return {
+      context: this.context,
+      ...(correlationId ? { correlationId } : {}),
+    };
+  }
+
+  /**
    * Sanitize sensitive data from objects
    */
   private sanitize(obj: any): any {
@@ -173,7 +189,7 @@ export class LoggerService implements NestLoggerService {
   info(message: string, context?: Record<string, any>): void {
     const sanitizedContext = this.sanitize(context);
     this.logger.info(message, {
-      context: this.context,
+      ...this.baseMeta(),
       ...sanitizedContext,
     });
   }
@@ -184,7 +200,7 @@ export class LoggerService implements NestLoggerService {
   warn(message: string, context?: Record<string, any>): void {
     const sanitizedContext = this.sanitize(context);
     this.logger.warn(message, {
-      context: this.context,
+      ...this.baseMeta(),
       ...sanitizedContext,
     });
   }
@@ -203,7 +219,7 @@ export class LoggerService implements NestLoggerService {
 
     if (errorOrTrace instanceof Error) {
       this.logger.error(message, {
-        context: this.context,
+        ...this.baseMeta(),
         error: {
           name: errorOrTrace.name,
           message: errorOrTrace.message,
@@ -213,7 +229,7 @@ export class LoggerService implements NestLoggerService {
       });
     } else {
       this.logger.error(message, {
-        context: this.context,
+        ...this.baseMeta(),
         trace: errorOrTrace,
         ...sanitizedContext,
       });
@@ -226,7 +242,7 @@ export class LoggerService implements NestLoggerService {
   debug(message: string, context?: Record<string, any>): void {
     const sanitizedContext = this.sanitize(context);
     this.logger.debug(message, {
-      context: this.context,
+      ...this.baseMeta(),
       ...sanitizedContext,
     });
   }
@@ -237,7 +253,7 @@ export class LoggerService implements NestLoggerService {
   verbose(message: string, context?: Record<string, any>): void {
     const sanitizedContext = this.sanitize(context);
     this.logger.verbose(message, {
-      context: this.context,
+      ...this.baseMeta(),
       ...sanitizedContext,
     });
   }
