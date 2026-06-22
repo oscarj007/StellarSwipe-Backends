@@ -19,20 +19,38 @@ interface RateLimitInfo {
   resetTime: number;
 }
 
-// Default limit/window (seconds) per tier, used when no RATE_LIMIT_<TIER>_LIMIT /
-// RATE_LIMIT_<TIER>_WINDOW env override is set (see docs/RATE_LIMITING.md).
+// Default per-IP limit/window (seconds) per tier.
+// Override via RATE_LIMIT_<TIER>_LIMIT / RATE_LIMIT_<TIER>_WINDOW env vars.
 const DEFAULT_TIER_LIMITS: Record<RateLimitTier, { limit: number; window: number }> = {
   [RateLimitTier.PUBLIC]: { limit: 100, window: 15 * 60 },
+  [RateLimitTier.AUTH]: { limit: 10, window: 60 },
   [RateLimitTier.AUTHENTICATED]: { limit: 1000, window: 15 * 60 },
   [RateLimitTier.TRADE]: { limit: 10, window: 60 },
   [RateLimitTier.SIGNAL]: { limit: 10, window: 24 * 60 * 60 },
   [RateLimitTier.ADMIN]: { limit: 10000, window: 15 * 60 },
 };
 
+// Default per-account limit/window (seconds) per tier, used when keyBy is set.
+// Override via RATE_LIMIT_<TIER>_ACCOUNT_LIMIT / RATE_LIMIT_<TIER>_ACCOUNT_WINDOW env vars.
+const DEFAULT_ACCOUNT_TIER_LIMITS: Record<RateLimitTier, { limit: number; window: number }> = {
+  [RateLimitTier.PUBLIC]: { limit: 50, window: 15 * 60 },
+  [RateLimitTier.AUTH]: { limit: 5, window: 300 },
+  [RateLimitTier.AUTHENTICATED]: { limit: 500, window: 15 * 60 },
+  [RateLimitTier.TRADE]: { limit: 5, window: 60 },
+  [RateLimitTier.SIGNAL]: { limit: 5, window: 24 * 60 * 60 },
+  [RateLimitTier.ADMIN]: { limit: 5000, window: 15 * 60 },
+};
+
+// Violation count thresholds for abuse pattern escalation within a 1-hour window.
+const ABUSE_WARN_THRESHOLD = 3;
+const ABUSE_ERROR_THRESHOLD = 10;
+const ABUSE_TRACKING_WINDOW_S = 3600;
+
 @Injectable()
 export class RateLimitGuard implements CanActivate {
   private readonly logger = new Logger(RateLimitGuard.name);
   private readonly limits: Record<RateLimitTier, { limit: number; window: number }>;
+  private readonly accountLimits: Record<RateLimitTier, { limit: number; window: number }>;
 
   constructor(
     private reflector: Reflector,
@@ -40,6 +58,7 @@ export class RateLimitGuard implements CanActivate {
     @Optional() private configService?: ConfigService,
   ) {
     this.limits = this.buildTierLimits();
+    this.accountLimits = this.buildAccountTierLimits();
   }
 
   private buildTierLimits(): Record<RateLimitTier, { limit: number; window: number }> {
@@ -47,6 +66,19 @@ export class RateLimitGuard implements CanActivate {
     return tiers.reduce((acc, tier) => {
       const envPrefix = `RATE_LIMIT_${tier.toUpperCase()}`;
       const defaults = DEFAULT_TIER_LIMITS[tier];
+      acc[tier] = {
+        limit: this.getEnvNumber(`${envPrefix}_LIMIT`, defaults.limit),
+        window: this.getEnvNumber(`${envPrefix}_WINDOW`, defaults.window),
+      };
+      return acc;
+    }, {} as Record<RateLimitTier, { limit: number; window: number }>);
+  }
+
+  private buildAccountTierLimits(): Record<RateLimitTier, { limit: number; window: number }> {
+    const tiers = Object.values(RateLimitTier) as RateLimitTier[];
+    return tiers.reduce((acc, tier) => {
+      const envPrefix = `RATE_LIMIT_${tier.toUpperCase()}_ACCOUNT`;
+      const defaults = DEFAULT_ACCOUNT_TIER_LIMITS[tier];
       acc[tier] = {
         limit: this.getEnvNumber(`${envPrefix}_LIMIT`, defaults.limit),
         window: this.getEnvNumber(`${envPrefix}_WINDOW`, defaults.window),
@@ -68,11 +100,28 @@ export class RateLimitGuard implements CanActivate {
     );
 
     if (!config) {
-      // Default to authenticated tier if no config
       return this.checkRateLimit(context, RateLimitTier.AUTHENTICATED);
     }
 
-    return this.checkRateLimit(context, config.tier, config.limit, config.window);
+    // Per-IP check
+    await this.checkRateLimit(context, config.tier, config.limit, config.window);
+
+    // Per-account check when keyBy is specified
+    if (config.keyBy?.length) {
+      const request = context.switchToHttp().getRequest();
+      const accountId = this.extractAccountIdentifier(request, config.keyBy);
+      if (accountId) {
+        await this.checkAccountLimit(
+          context,
+          config.tier,
+          accountId,
+          config.accountLimit,
+          config.accountWindow,
+        );
+      }
+    }
+
+    return true;
   }
 
   private async checkRateLimit(
@@ -86,8 +135,8 @@ export class RateLimitGuard implements CanActivate {
 
     const identifier = this.getIdentifier(request, tier);
     const { limit, window } = this.limits[tier];
-    const finalLimit = customLimit || limit;
-    const finalWindow = customWindow || window;
+    const finalLimit = customLimit ?? limit;
+    const finalWindow = customWindow ?? window;
 
     const key = `rate_limit:${tier}:${identifier}`;
     const info = await this.getRateLimitInfo(key);
@@ -95,7 +144,6 @@ export class RateLimitGuard implements CanActivate {
     const now = Date.now();
     const windowMs = finalWindow * 1000;
 
-    // Reset if window expired
     if (info.resetTime <= now) {
       info.count = 0;
       info.resetTime = now + windowMs;
@@ -103,10 +151,9 @@ export class RateLimitGuard implements CanActivate {
 
     info.count++;
 
-    // Check if limit exceeded
     if (info.count > finalLimit) {
       const retryAfter = Math.ceil((info.resetTime - now) / 1000);
-      
+
       response.setHeader('X-RateLimit-Limit', finalLimit);
       response.setHeader('X-RateLimit-Remaining', 0);
       response.setHeader('X-RateLimit-Reset', info.resetTime);
@@ -126,10 +173,8 @@ export class RateLimitGuard implements CanActivate {
       );
     }
 
-    // Store updated info
     await this.setRateLimitInfo(key, info, finalWindow);
 
-    // Set rate limit headers
     response.setHeader('X-RateLimit-Limit', finalLimit);
     response.setHeader('X-RateLimit-Remaining', finalLimit - info.count);
     response.setHeader('X-RateLimit-Reset', info.resetTime);
@@ -137,13 +182,73 @@ export class RateLimitGuard implements CanActivate {
     return true;
   }
 
-  private getIdentifier(request: any, tier: RateLimitTier): string {
-    // For authenticated tiers, use user ID
-    if (tier !== RateLimitTier.PUBLIC && request.user?.id) {
-      return `user:${request.user.id}`;
+  private async checkAccountLimit(
+    context: ExecutionContext,
+    tier: RateLimitTier,
+    accountId: string,
+    customLimit?: number,
+    customWindow?: number,
+  ): Promise<void> {
+    const response = context.switchToHttp().getResponse();
+    const { limit: defaultLimit, window: defaultWindow } = this.accountLimits[tier];
+    const finalLimit = customLimit ?? defaultLimit;
+    const finalWindow = customWindow ?? defaultWindow;
+
+    const key = `rate_limit:account:${tier}:${accountId}`;
+    const info = await this.getRateLimitInfo(key);
+
+    const now = Date.now();
+    const windowMs = finalWindow * 1000;
+
+    if (info.resetTime <= now) {
+      info.count = 0;
+      info.resetTime = now + windowMs;
     }
 
-    // For public, use IP address
+    info.count++;
+
+    if (info.count > finalLimit) {
+      const retryAfter = Math.ceil((info.resetTime - now) / 1000);
+
+      response.setHeader('X-RateLimit-Limit', finalLimit);
+      response.setHeader('X-RateLimit-Remaining', 0);
+      response.setHeader('X-RateLimit-Reset', info.resetTime);
+      response.setHeader('Retry-After', retryAfter);
+
+      this.logViolation(accountId, tier, finalLimit);
+
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.TOO_MANY_REQUESTS,
+          message: 'Too many requests',
+          error: 'Too Many Requests',
+          retryAfter,
+          guidance: `Rate limit of ${finalLimit} requests per ${finalWindow}s exceeded. Retry after ${retryAfter}s or once the X-RateLimit-Reset timestamp has passed.`,
+        },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    await this.setRateLimitInfo(key, info, finalWindow);
+
+    response.setHeader('X-RateLimit-Limit', finalLimit);
+    response.setHeader('X-RateLimit-Remaining', finalLimit - info.count);
+    response.setHeader('X-RateLimit-Reset', info.resetTime);
+  }
+
+  private extractAccountIdentifier(request: any, keyBy: string[]): string | null {
+    const body = request.body ?? {};
+    const parts = keyBy
+      .map(field => body[field])
+      .filter((v): v is string => typeof v === 'string' && v.length > 0)
+      .map(v => v.toLowerCase().trim());
+    return parts.length > 0 ? parts.join(':') : null;
+  }
+
+  private getIdentifier(request: any, tier: RateLimitTier): string {
+    if (tier !== RateLimitTier.PUBLIC && tier !== RateLimitTier.AUTH && request.user?.id) {
+      return `user:${request.user.id}`;
+    }
     const ip = this.getClientIP(request);
     return `ip:${ip}`;
   }
@@ -177,5 +282,33 @@ export class RateLimitGuard implements CanActivate {
       `Rate limit exceeded: identifier=${identifier} tier=${tier} limit=${limit}`,
       { type: 'rate_limit_violation', identifier, tier, limit, timestamp: new Date().toISOString() },
     );
+    this.trackAbuseViolation(identifier, tier);
+  }
+
+  // Tracks cumulative violations in a rolling 1-hour window and escalates log severity
+  // when repeat abuse is detected. Fire-and-forget — does not block the response.
+  private trackAbuseViolation(identifier: string, tier: RateLimitTier): void {
+    const abuseKey = `rate_limit_abuse:${tier}:${identifier}`;
+    this.cacheManager
+      .get<number>(abuseKey)
+      .then(count => {
+        const violations = (count ?? 0) + 1;
+        this.cacheManager.set(abuseKey, violations, ABUSE_TRACKING_WINDOW_S * 1000);
+
+        if (violations >= ABUSE_ERROR_THRESHOLD) {
+          this.logger.error(
+            `Persistent abuse detected: identifier=${identifier} tier=${tier} violations=${violations} in 1h`,
+            { type: 'persistent_abuse', identifier, tier, violations, timestamp: new Date().toISOString() },
+          );
+        } else if (violations >= ABUSE_WARN_THRESHOLD) {
+          this.logger.warn(
+            `Abuse pattern detected: identifier=${identifier} tier=${tier} violations=${violations} in 1h`,
+            { type: 'abuse_pattern_detected', identifier, tier, violations, timestamp: new Date().toISOString() },
+          );
+        }
+      })
+      .catch(() => {
+        // Abuse tracking is best-effort; don't surface cache failures
+      });
   }
 }
