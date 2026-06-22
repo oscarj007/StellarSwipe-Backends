@@ -2,8 +2,9 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ExecutionContext, HttpException, HttpStatus } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { ConfigService } from '@nestjs/config';
 import { RateLimitGuard } from './rate-limit.guard';
-import { RateLimitTier, RATE_LIMIT_KEY } from '../decorators/rate-limit.decorator';
+import { RateLimitTier } from '../decorators/rate-limit.decorator';
 
 const mockCacheManager = {
   get: jest.fn(),
@@ -13,6 +14,10 @@ const mockCacheManager = {
 const mockReflector = {
   get: jest.fn(),
 };
+
+function buildConfigService(overrides: Record<string, string | number> = {}) {
+  return { get: jest.fn((key: string) => overrides[key]) };
+}
 
 function buildContext(
   user?: { id: string },
@@ -61,12 +66,10 @@ describe('RateLimitGuard (issue #482)', () => {
     mockCacheManager.get.mockResolvedValue({ count: 100, resetTime: Date.now() + 60_000 });
     mockCacheManager.set.mockResolvedValue(undefined);
 
-    await expect(guard.canActivate(buildContext(undefined, '10.0.0.2'))).rejects.toThrow(
-      new HttpException(
-        expect.objectContaining({ statusCode: HttpStatus.TOO_MANY_REQUESTS }),
-        HttpStatus.TOO_MANY_REQUESTS,
-      ),
-    );
+    await expect(guard.canActivate(buildContext(undefined, '10.0.0.2'))).rejects.toMatchObject({
+      status: HttpStatus.TOO_MANY_REQUESTS,
+      response: expect.objectContaining({ statusCode: HttpStatus.TOO_MANY_REQUESTS }),
+    });
   });
 
   it('uses user ID as identifier for authenticated tier', async () => {
@@ -94,12 +97,10 @@ describe('RateLimitGuard (issue #482)', () => {
     mockCacheManager.get.mockResolvedValue({ count: 5, resetTime: Date.now() + 60_000 });
     mockCacheManager.set.mockResolvedValue(undefined);
 
-    await expect(guard.canActivate(buildContext(undefined, '10.0.0.3'))).rejects.toThrow(
-      new HttpException(
-        expect.objectContaining({ statusCode: HttpStatus.TOO_MANY_REQUESTS }),
-        HttpStatus.TOO_MANY_REQUESTS,
-      ),
-    );
+    await expect(guard.canActivate(buildContext(undefined, '10.0.0.3'))).rejects.toMatchObject({
+      status: HttpStatus.TOO_MANY_REQUESTS,
+      response: expect.objectContaining({ statusCode: HttpStatus.TOO_MANY_REQUESTS }),
+    });
   });
 
   it('sets X-RateLimit-* headers on successful request', async () => {
@@ -114,5 +115,99 @@ describe('RateLimitGuard (issue #482)', () => {
     expect(response.setHeader).toHaveBeenCalledWith('X-RateLimit-Limit', expect.any(Number));
     expect(response.setHeader).toHaveBeenCalledWith('X-RateLimit-Remaining', expect.any(Number));
     expect(response.setHeader).toHaveBeenCalledWith('X-RateLimit-Reset', expect.any(Number));
+  });
+
+  it('includes retry guidance and Retry-After header on 429 (issue #639)', async () => {
+    mockReflector.get.mockReturnValue({ tier: RateLimitTier.TRADE });
+    mockCacheManager.get.mockResolvedValue({ count: 10, resetTime: Date.now() + 30_000 });
+    mockCacheManager.set.mockResolvedValue(undefined);
+
+    const ctx = buildContext({ id: 'user-retry' });
+
+    await expect(guard.canActivate(ctx)).rejects.toMatchObject({
+      response: {
+        statusCode: HttpStatus.TOO_MANY_REQUESTS,
+        retryAfter: expect.any(Number),
+        guidance: expect.stringContaining('Retry after'),
+      },
+    });
+
+    const response = ctx.switchToHttp().getResponse() as { setHeader: jest.Mock };
+    expect(response.setHeader).toHaveBeenCalledWith('Retry-After', expect.any(Number));
+  });
+});
+
+describe('RateLimitGuard tier limits via environment variables (issue #639)', () => {
+  it('falls back to hardcoded defaults when no ConfigService is provided', async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        RateLimitGuard,
+        { provide: Reflector, useValue: mockReflector },
+        { provide: CACHE_MANAGER, useValue: mockCacheManager },
+      ],
+    }).compile();
+
+    const guard = module.get(RateLimitGuard);
+
+    mockReflector.get.mockReturnValue({ tier: RateLimitTier.PUBLIC });
+    mockCacheManager.get.mockResolvedValue({ count: 100, resetTime: Date.now() + 60_000 });
+    mockCacheManager.set.mockResolvedValue(undefined);
+
+    // Default PUBLIC limit is 100 — the 101st request in-window must be rejected.
+    await expect(guard.canActivate(buildContext(undefined, '10.0.0.10'))).rejects.toThrow(
+      HttpException,
+    );
+  });
+
+  it('honors RATE_LIMIT_<TIER>_LIMIT / _WINDOW env overrides over hardcoded defaults', async () => {
+    const configService = buildConfigService({
+      RATE_LIMIT_PUBLIC_LIMIT: 3,
+      RATE_LIMIT_PUBLIC_WINDOW: 30,
+    });
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        RateLimitGuard,
+        { provide: Reflector, useValue: mockReflector },
+        { provide: CACHE_MANAGER, useValue: mockCacheManager },
+        { provide: ConfigService, useValue: configService },
+      ],
+    }).compile();
+
+    const guard = module.get(RateLimitGuard);
+
+    mockReflector.get.mockReturnValue({ tier: RateLimitTier.PUBLIC });
+    mockCacheManager.get.mockResolvedValue({ count: 3, resetTime: Date.now() + 30_000 });
+    mockCacheManager.set.mockResolvedValue(undefined);
+
+    // With the override, the configured limit of 3 is already met — the 4th request 429s
+    // even though the hardcoded PUBLIC default of 100 would have allowed it.
+    await expect(guard.canActivate(buildContext(undefined, '10.0.0.11'))).rejects.toThrow(
+      HttpException,
+    );
+  });
+
+  it('lets normal traffic through under a configured override limit', async () => {
+    const configService = buildConfigService({
+      RATE_LIMIT_PUBLIC_LIMIT: 3,
+      RATE_LIMIT_PUBLIC_WINDOW: 30,
+    });
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        RateLimitGuard,
+        { provide: Reflector, useValue: mockReflector },
+        { provide: CACHE_MANAGER, useValue: mockCacheManager },
+        { provide: ConfigService, useValue: configService },
+      ],
+    }).compile();
+
+    const guard = module.get(RateLimitGuard);
+
+    mockReflector.get.mockReturnValue({ tier: RateLimitTier.PUBLIC });
+    mockCacheManager.get.mockResolvedValue({ count: 1, resetTime: Date.now() + 30_000 });
+    mockCacheManager.set.mockResolvedValue(undefined);
+
+    await expect(guard.canActivate(buildContext(undefined, '10.0.0.12'))).resolves.toBe(true);
   });
 });

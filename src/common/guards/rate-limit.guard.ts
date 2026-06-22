@@ -6,9 +6,11 @@ import {
   HttpStatus,
   Inject,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { ConfigService } from '@nestjs/config';
 import { Cache } from 'cache-manager';
 import { RATE_LIMIT_KEY, RateLimitConfig, RateLimitTier } from '../decorators/rate-limit.decorator';
 
@@ -17,21 +19,47 @@ interface RateLimitInfo {
   resetTime: number;
 }
 
+// Default limit/window (seconds) per tier, used when no RATE_LIMIT_<TIER>_LIMIT /
+// RATE_LIMIT_<TIER>_WINDOW env override is set (see docs/RATE_LIMITING.md).
+const DEFAULT_TIER_LIMITS: Record<RateLimitTier, { limit: number; window: number }> = {
+  [RateLimitTier.PUBLIC]: { limit: 100, window: 15 * 60 },
+  [RateLimitTier.AUTHENTICATED]: { limit: 1000, window: 15 * 60 },
+  [RateLimitTier.TRADE]: { limit: 10, window: 60 },
+  [RateLimitTier.SIGNAL]: { limit: 10, window: 24 * 60 * 60 },
+  [RateLimitTier.ADMIN]: { limit: 10000, window: 15 * 60 },
+};
+
 @Injectable()
 export class RateLimitGuard implements CanActivate {
   private readonly logger = new Logger(RateLimitGuard.name);
-  private readonly limits = {
-    [RateLimitTier.PUBLIC]: { limit: 100, window: 15 * 60 },
-    [RateLimitTier.AUTHENTICATED]: { limit: 1000, window: 15 * 60 },
-    [RateLimitTier.TRADE]: { limit: 10, window: 60 },
-    [RateLimitTier.SIGNAL]: { limit: 10, window: 24 * 60 * 60 },
-    [RateLimitTier.ADMIN]: { limit: 10000, window: 15 * 60 },
-  };
+  private readonly limits: Record<RateLimitTier, { limit: number; window: number }>;
 
   constructor(
     private reflector: Reflector,
     @Inject(CACHE_MANAGER) private cacheManager: Cache,
-  ) {}
+    @Optional() private configService?: ConfigService,
+  ) {
+    this.limits = this.buildTierLimits();
+  }
+
+  private buildTierLimits(): Record<RateLimitTier, { limit: number; window: number }> {
+    const tiers = Object.values(RateLimitTier) as RateLimitTier[];
+    return tiers.reduce((acc, tier) => {
+      const envPrefix = `RATE_LIMIT_${tier.toUpperCase()}`;
+      const defaults = DEFAULT_TIER_LIMITS[tier];
+      acc[tier] = {
+        limit: this.getEnvNumber(`${envPrefix}_LIMIT`, defaults.limit),
+        window: this.getEnvNumber(`${envPrefix}_WINDOW`, defaults.window),
+      };
+      return acc;
+    }, {} as Record<RateLimitTier, { limit: number; window: number }>);
+  }
+
+  private getEnvNumber(key: string, fallback: number): number {
+    const raw = this.configService?.get<string | number>(key);
+    const parsed = Number(raw);
+    return raw !== undefined && raw !== null && !Number.isNaN(parsed) ? parsed : fallback;
+  }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const config = this.reflector.get<RateLimitConfig>(
@@ -90,7 +118,9 @@ export class RateLimitGuard implements CanActivate {
         {
           statusCode: HttpStatus.TOO_MANY_REQUESTS,
           message: 'Too many requests',
+          error: 'Too Many Requests',
           retryAfter,
+          guidance: `Rate limit of ${finalLimit} requests per ${finalWindow}s exceeded. Retry after ${retryAfter}s or once the X-RateLimit-Reset timestamp has passed.`,
         },
         HttpStatus.TOO_MANY_REQUESTS,
       );

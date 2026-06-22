@@ -25,6 +25,8 @@ export class AuthController {
     @ApiOperation({ summary: 'Register a new user' })
     @ApiResponse({ status: 201, description: 'User successfully registered' })
     @ApiResponse({ status: 400, description: 'Bad Request' })
+    @ApiResponse({ status: 429, description: 'Too many registration attempts — see Retry-After header' })
+    @RateLimit({ tier: RateLimitTier.PUBLIC, limit: 5, window: 60 })
     async register(@Body() dto: RegisterDto) {
         return this.authService.register(dto);
     }
@@ -33,6 +35,8 @@ export class AuthController {
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: 'Request password reset link' })
     @ApiResponse({ status: 200, description: 'Reset link sent if user exists' })
+    @ApiResponse({ status: 429, description: 'Too many requests — see Retry-After header' })
+    @RateLimit({ tier: RateLimitTier.PUBLIC, limit: 5, window: 60 })
     async forgotPassword(@Body() dto: ForgotPasswordDto) {
         return this.authService.forgotPassword(dto);
     }
@@ -42,6 +46,8 @@ export class AuthController {
     @ApiOperation({ summary: 'Reset password using token' })
     @ApiResponse({ status: 200, description: 'Password successfully reset' })
     @ApiResponse({ status: 401, description: 'Invalid or expired token' })
+    @ApiResponse({ status: 429, description: 'Too many attempts — see Retry-After header' })
+    @RateLimit({ tier: RateLimitTier.PUBLIC, limit: 10, window: 60 })
     async resetPassword(@Body() dto: ResetPasswordDto) {
         return this.authService.resetPassword(dto);
     }

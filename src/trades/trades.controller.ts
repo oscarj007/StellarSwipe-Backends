@@ -12,6 +12,7 @@ import {
   Request,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RateLimit, RateLimitTier } from '../common/decorators/rate-limit.decorator';
 import { TradesService } from './trades.service';
 import { TradeOutcomeService } from './trade-outcome.service';
 import { TradeOutcomeQueryDto } from './dto/trade-outcome-query.dto';
@@ -45,6 +46,7 @@ export class TradesController {
    */
   @Post('execute')
   @HttpCode(HttpStatus.CREATED)
+  @RateLimit({ tier: RateLimitTier.TRADE })
   async executeTrade(@Body() dto: ExecuteTradeDto): Promise<TradeResultDto> {
     return this.tradesService.executeTrade(dto);
   }
@@ -55,6 +57,7 @@ export class TradesController {
    */
   @Post('validate')
   @HttpCode(HttpStatus.OK)
+  @RateLimit({ tier: RateLimitTier.TRADE })
   async validateTrade(@Body() dto: ExecuteTradeDto): Promise<TradeValidationResultDto> {
     return this.tradesService.validateTradePreview(dto);
   }
@@ -65,6 +68,7 @@ export class TradesController {
    */
   @Post('close')
   @HttpCode(HttpStatus.OK)
+  @RateLimit({ tier: RateLimitTier.TRADE })
   async closeTrade(@Body() dto: CloseTradeDto): Promise<CloseTradeResultDto> {
     return this.tradesService.closeTrade(dto);
   }
@@ -75,6 +79,7 @@ export class TradesController {
    */
   @Post('partial-close')
   @HttpCode(HttpStatus.OK)
+  @RateLimit({ tier: RateLimitTier.TRADE })
   async partialClose(@Body() dto: PartialCloseDto): Promise<any> {
     return this.partialCloseService.closePartial(dto);
   }
