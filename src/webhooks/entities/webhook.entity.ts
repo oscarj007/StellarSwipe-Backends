@@ -18,7 +18,16 @@ export const SUPPORTED_WEBHOOK_EVENTS = [
   'signal.performance.updated',
   'contest.updated',
   'payout.completed',
+  'payment.stellar.received',
+  'payment.stellar.sent',
+  'payment.stellar.failed',
 ] as const;
+
+export const STELLAR_PAYMENT_EVENTS = [
+  'payment.stellar.received',
+  'payment.stellar.sent',
+  'payment.stellar.failed',
+] as const satisfies ReadonlyArray<(typeof SUPPORTED_WEBHOOK_EVENTS)[number]>;
 
 export type WebhookEventType = (typeof SUPPORTED_WEBHOOK_EVENTS)[number];
 
