@@ -8,6 +8,7 @@ import { Asset, AssetType } from './entities/asset.entity';
 import { AssetPair } from './entities/asset-pair.entity';
 import { CreateAssetDto, AssetPriceDto, AssetDto, AssetPairDto } from './dto/asset-price.dto';
 import axios from 'axios';
+import { TrustlineEstablishmentService } from './trustline-establishment.service';
 
 @Injectable()
 export class AssetsService {
@@ -23,6 +24,7 @@ export class AssetsService {
     private assetPairRepository: Repository<AssetPair>,
     @Inject(CACHE_MANAGER)
     private cacheManager: Cache,
+    private trustlineService: TrustlineEstablishmentService,
   ) {
     this.initializeCoreAssets();
   }
@@ -273,7 +275,15 @@ export class AssetsService {
       metadata: createAssetDto.metadata || null,
     });
 
-    return this.assetRepository.save(asset);
+    const savedAsset = await this.assetRepository.save(asset);
+
+    if (savedAsset.type === AssetType.ISSUED) {
+      this.trustlineService.establishTrustlinesForAsset(savedAsset.id).catch(error => {
+        this.logger.error(`Failed to establish trustlines for asset ${savedAsset.id}: ${error.message}`);
+      });
+    }
+
+    return savedAsset;
   }
 
   /**

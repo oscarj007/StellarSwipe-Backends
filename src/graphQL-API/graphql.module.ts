@@ -6,6 +6,7 @@ import { join } from 'path';
 import { fieldExtensionsEstimator, simpleEstimator, getComplexity } from 'graphql-query-complexity';
 import { GraphQLSchema } from 'graphql';
 import { Reflector } from '@nestjs/core';
+import { PubSub } from 'graphql-subscriptions';
 
 // ─── Scalars ─────────────────────────────────────────────────────────────────
 import { DateTimeScalar } from './scalars/datetime.scalar';
@@ -27,6 +28,7 @@ import { TradeResolver } from './resolvers/trade.resolver';
 import { PortfolioResolver } from './resolvers/portfolio.resolver';
 import { ProviderResolver } from './resolvers/provider.resolver';
 import { UserResolver } from './resolvers/user.resolver';
+import { SignalSubscriptionResolver } from './signal-subscription.resolver';
 
 // ─── Domain modules ───────────────────────────────────────────────────────────
 import { SignalsModule } from '../signals/signals.module';
@@ -111,8 +113,7 @@ import { SignalsService } from '../signals/signals.service';
 
         /** Subscriptions over WS — enable when needed */
         subscriptions: {
-          'graphql-ws': false,
-          'subscriptions-transport-ws': false,
+          'graphql-ws': true,
         },
 
         /** Format errors before returning to client — strip internals in prod */
@@ -153,12 +154,16 @@ import { SignalsService } from '../signals/signals.service';
     GqlLoggingPlugin,
     GqlDepthLimitPlugin,
 
+    // PubSub for subscriptions
+    { provide: PubSub, useValue: new PubSub() },
+
     // Resolvers
     SignalResolver,
     TradeResolver,
     PortfolioResolver,
     ProviderResolver,
     UserResolver,
+    SignalSubscriptionResolver,
   ],
 
   exports: [GqlAuthGuard],
