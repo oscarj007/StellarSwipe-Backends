@@ -21,6 +21,7 @@ import {
   ContractEvent,
   ContractResult,
 } from './interfaces/contract-result.interface';
+import { SorobanDiagnosticService } from './soroban-diagnostic.service';
 
 // Optional import for monitoring - will be injected if available
 interface SorobanMonitoringService {
@@ -54,6 +55,7 @@ export class SorobanService {
   constructor(
     private readonly stellarConfig: StellarConfigService,
     private readonly sorobanMonitoring?: SorobanMonitoringService,
+    private readonly diagnosticService: SorobanDiagnosticService,
   ) {
     this.server = new SorobanRpc.Server(this.stellarConfig.sorobanRpcUrl);
   }
@@ -161,6 +163,18 @@ export class SorobanService {
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown Soroban error';
+      
+      // Parse and log diagnostic events if available
+      const diagnosticEvents = this.diagnosticService.parseDiagnosticEvents(
+        (error as Record<string, unknown>)?.events as Array<Record<string, unknown>> || [],
+        sendResponse.hash,
+      );
+      this.diagnosticService.logDiagnosticEvents(diagnosticEvents, {
+        contractId,
+        method,
+        txHash: sendResponse.hash,
+      });
+      
       this.logger.error(
         `Soroban invocation failed for ${contractId}.${method}: ${errorMessage}`,
       );
