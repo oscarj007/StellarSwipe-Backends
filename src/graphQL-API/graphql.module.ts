@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { GraphQLModule as NestGraphQLModule } from '@nestjs/graphql';
 import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
 import { APP_FILTER } from '@nestjs/core';
+import { ConfigService } from '@nestjs/config';
 import { join } from 'path';
 import { fieldExtensionsEstimator, simpleEstimator, getComplexity } from 'graphql-query-complexity';
 import { GraphQLSchema } from 'graphql';
@@ -57,8 +58,8 @@ import { SignalsService } from '../signals/signals.service';
 
     NestGraphQLModule.forRootAsync<ApolloDriverConfig>({
       driver: ApolloDriver,
-      inject: [ProvidersService, SignalsService],
-      useFactory: (providersService: ProvidersService, signalsService: SignalsService) => ({
+      inject: [ProvidersService, SignalsService, ConfigService],
+      useFactory: (providersService: ProvidersService, signalsService: SignalsService, configService: ConfigService) => ({
         /**
          * Code-first schema — NestJS generates schema.gql automatically.
          * The file is written to disk so you can inspect or commit it.
@@ -102,14 +103,14 @@ import { SignalsService } from '../signals/signals.service';
                 `Query complexity ${complexity} exceeds limit of ${limit}. Simplify your query.`,
               );
             }
-            if (process.env.NODE_ENV !== 'production') {
+            if (configService.get<string>('NODE_ENV') !== 'production') {
               console.debug(`[GraphQL] complexity: ${complexity}/${limit}`);
             }
           },
         ],
 
         /** Expose playground in non-production environments */
-        playground: process.env.NODE_ENV !== 'production',
+        playground: configService.get<string>('NODE_ENV') !== 'production',
 
         /** Subscriptions over WS — enable when needed */
         subscriptions: {
@@ -118,7 +119,7 @@ import { SignalsService } from '../signals/signals.service';
 
         /** Format errors before returning to client — strip internals in prod */
         formatError: (error) => {
-          const isProd = process.env.NODE_ENV === 'production';
+          const isProd = configService.get<string>('NODE_ENV') === 'production';
           return {
             message: error.message,
             code: error.extensions?.code,

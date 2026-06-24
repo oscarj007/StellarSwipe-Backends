@@ -1,5 +1,6 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { ConfigService } from '@nestjs/config';
 import { Repository } from 'typeorm';
 import { Asset, AssetType } from './entities/asset.entity';
 import { AuditAction } from '../audit-log/audit-log.entity';
@@ -13,6 +14,7 @@ export class TrustlineEstablishmentService {
     @InjectRepository(Asset)
     private readonly assetRepo: Repository<Asset>,
     private readonly auditService: AuditService,
+    private readonly configService: ConfigService,
   ) {}
 
   async establishTrustlinesForAsset(assetId: string): Promise<{ success: boolean; errors: string[] }> {
@@ -66,7 +68,10 @@ export class TrustlineEstablishmentService {
   }
 
   private getPlatformAccounts(): string[] {
-    const accounts = process.env.PLATFORM_STELLAR_ACCOUNTS?.split(',') || [];
+    const accounts =
+      this.configService
+        .get<string>('PLATFORM_STELLAR_ACCOUNTS')
+        ?.split(',') || [];
     return accounts.map(a => a.trim()).filter(a => a.length > 0);
   }
 

@@ -122,7 +122,7 @@ async function bootstrap() {
 // Global filters
    const errorClassifier = app.get(ErrorClassificationService);
    app.useGlobalFilters(
-     new GlobalExceptionFilter(logger, sentryService, errorClassifier),
+     new GlobalExceptionFilter(logger, sentryService, errorClassifier, configService),
      new I18nValidationExceptionFilter({ detailedErrors: false }),
    );
 
@@ -130,7 +130,7 @@ async function bootstrap() {
   app.useGlobalInterceptors(new DeadlockRetryInterceptor());
   app.useGlobalInterceptors(new TimeoutInterceptor(app.get(Reflector)));
   app.useGlobalInterceptors(
-    new LoggingInterceptor(logger, app.get(CorrelationIdStore)),
+    new LoggingInterceptor(logger, app.get(CorrelationIdStore), configService),
   );
   app.useGlobalInterceptors(new TransformInterceptor());
   app.useGlobalInterceptors(new SensitiveDataInterceptor());
