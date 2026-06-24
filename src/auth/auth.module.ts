@@ -45,7 +45,7 @@ import { AnomalousLoginListener } from './session/anomalous-login.listener';
     UsersModule,
     EmailModule,
   ],
-  controllers: [AuthController, SocialAuthController, TwoFactorController],
+  controllers: [AuthController, SocialAuthController, TwoFactorController, WebauthnController],
   providers: [
     AuthService,
     JwtStrategy,
