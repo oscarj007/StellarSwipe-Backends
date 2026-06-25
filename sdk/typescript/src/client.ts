@@ -1,6 +1,7 @@
 import { Signals } from './resources/signals';
 import { Trades } from './resources/trades';
 import { Portfolio } from './resources/portfolio';
+import { Soroban } from './resources/soroban';
 import {
   APIError,
   AuthenticationError,
@@ -24,6 +25,7 @@ export class StellarSwipeClient {
   public signals: Signals;
   public trades: Trades;
   public portfolio: Portfolio;
+  public soroban: Soroban;
 
   private apiKey: string;
   private baseUrl: string;
@@ -46,6 +48,7 @@ export class StellarSwipeClient {
     this.signals = new Signals(this);
     this.trades = new Trades(this);
     this.portfolio = new Portfolio(this);
+    this.soroban = new Soroban(this);
   }
 
   async request<T = any>(

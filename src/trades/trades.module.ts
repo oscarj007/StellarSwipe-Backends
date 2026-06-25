@@ -29,7 +29,6 @@ import { TradeAuditService } from './trade-audit.service';
 import { TradeAuditController } from './trade-audit.controller';
 import { ConfirmationPollingService } from './services/confirmation-polling.service';
 import { AuditModule } from '../audit-log/audit.module';
-import { NotificationsModule } from '../notifications/notifications.module';
 import { TradeExecutionOrchestratorService } from './services/trade-execution-orchestrator.service';
 import { SwipeController } from './swipe/swipe.controller';
 import { SwipeService } from './swipe/swipe.service';
@@ -37,10 +36,14 @@ import { MarketOrderService } from './services/market-order.service';
 import { MarketOrderController } from './market-order.controller';
 import { TradeRetryService } from './services/trade-retry.service';
 import { TradeRetryController } from './trade-retry.controller';
+import { TradeSagaOrchestrator } from './saga/trade-saga.orchestrator';
+import { TradeSagaStepsFactory } from './saga/trade-saga.steps';
+import { TradeSagaService } from './saga/trade-saga.service';
+import { TradeSagaEntity } from './saga/trade-saga.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Trade, AdvancedOrder, Signal]),
+    TypeOrmModule.forFeature([Trade, AdvancedOrder, Signal, TradeSagaEntity]),
     RiskManagerModule,
     ComplianceModule,
     SdexModule,
@@ -70,8 +73,11 @@ import { TradeRetryController } from './trade-retry.controller';
     TradeExecutionOrchestratorService,
     SwipeService,
     TradeRetryService,
+    TradeSagaOrchestrator,
+    TradeSagaStepsFactory,
+    TradeSagaService,
   ],
-  exports: [TradesService, RiskManagerService, OcoOrderService, IcebergOrderService, PartialCloseService, TradeHistoryService, TradeOutcomeService, TradeAuditService, ConfirmationPollingService, TradeExecutionOrchestratorService, TradeRetryService, TradeExecutorService],
+  exports: [TradesService, RiskManagerService, OcoOrderService, IcebergOrderService, PartialCloseService, TradeHistoryService, TradeOutcomeService, TradeAuditService, ConfirmationPollingService, TradeExecutionOrchestratorService, TradeRetryService, TradeExecutorService, TradeSagaService],
 })
 export class TradesModule { }
 

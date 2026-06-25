@@ -4,23 +4,23 @@ import { SorobanService } from './soroban.service';
 import { StellarConfigService } from '../config/stellar.service';
 import { ContractDeploymentService } from './deployment/contract-deployment.service';
 import { SorobanTransactionBuilderService } from './soroban-transaction-builder.service';
-import { ContractUpgradeGovernanceService } from './contract-upgrade-governance.service';
-import { ContractUpgradeProposal } from './entities/contract-upgrade-proposal.entity';
+import { SorobanSimulationService } from './soroban-simulation.service';
+import { SorobanController } from './soroban.controller';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([ContractUpgradeProposal])],
+  controllers: [SorobanController],
   providers: [
     SorobanService,
     StellarConfigService,
     ContractDeploymentService,
     SorobanTransactionBuilderService,
-    ContractUpgradeGovernanceService,
+    SorobanSimulationService,
   ],
   exports: [
     SorobanService,
     ContractDeploymentService,
     SorobanTransactionBuilderService,
-    ContractUpgradeGovernanceService,
+    SorobanSimulationService,
   ],
 })
 export class SorobanModule {}
