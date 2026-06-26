@@ -435,6 +435,16 @@ export class AssetsService {
   }
 
   /**
+   * Batch lookup for multiple asset codes (used by GraphQL DataLoader)
+   */
+  async findByCodes(codes: readonly string[]): Promise<Asset[]> {
+    if (!codes || codes.length === 0) return [];
+    const unique = Array.from(new Set(codes as string[]));
+    const assets = await this.assetRepository.find({ where: unique.map((c) => ({ code: c })) });
+    return assets;
+  }
+
+  /**
    * Check if asset exists
    */
   async assetExists(code: string, issuer?: string): Promise<boolean> {

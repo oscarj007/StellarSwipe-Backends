@@ -68,10 +68,10 @@ async function bootstrap() {
   app.useGlobalInterceptors(new DeprecationInterceptor(app.get(Reflector)));
 
   // Enable CORS
-  app.enableCors({
-    origin: corsOrigin,
-    credentials: corsCredentials,
-  });
+  // Build CORS options using helper which validates production config
+  const { createCorsOptions } = await import('./common/cors/cors.helper');
+  const corsOptions = createCorsOptions(corsOrigin, corsCredentials, configService.get('app.environment'));
+  app.enableCors(corsOptions);
 
   // Enable compression
   app.use((compression as any)(compressionConfig));

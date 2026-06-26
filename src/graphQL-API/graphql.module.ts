@@ -37,6 +37,7 @@ import { TradesModule } from '../trades/trades.module';
 import { PortfolioModule } from '../portfolio/portfolio.module';
 import { ProvidersModule } from '../providers/providers.module';
 import { UsersModule } from '../users/users.module';
+import { AssetsModule } from '../assets/assets.module';
 
 // ─── Utils ────────────────────────────────────────────────────────────────────
 import { createDataLoader, createGroupedDataLoader } from './utils/dataloader-factory';
@@ -46,6 +47,7 @@ import {
 } from './utils/complexity-calculator';
 import { ProvidersService } from '../providers/providers.service';
 import { SignalsService } from '../signals/signals.service';
+import { AssetsService } from '../assets/assets.service';
 
 @Module({
   imports: [
@@ -54,12 +56,18 @@ import { SignalsService } from '../signals/signals.service';
     TradesModule,
     PortfolioModule,
     ProvidersModule,
+    AssetsModule,
     UsersModule,
 
     NestGraphQLModule.forRootAsync<ApolloDriverConfig>({
       driver: ApolloDriver,
-      inject: [ProvidersService, SignalsService, ConfigService],
-      useFactory: (providersService: ProvidersService, signalsService: SignalsService, configService: ConfigService) => ({
+      inject: [ProvidersService, SignalsService, ConfigService, AssetsService],
+      useFactory: (
+        providersService: ProvidersService,
+        signalsService: SignalsService,
+        configService: ConfigService,
+        assetsService: AssetsService,
+      ) => ({
         /**
          * Code-first schema — NestJS generates schema.gql automatically.
          * The file is written to disk so you can inspect or commit it.
@@ -78,6 +86,11 @@ import { SignalsService } from '../signals/signals.service';
             signalsByProviderId: createGroupedDataLoader(
               (providerIds) => signalsService.findByProviderIds(providerIds as string[]),
               (s) => s.providerId,
+            ),
+            // Asset metadata loader (per-request) — batches asset lookups by code
+            assetByCode: createDataLoader(
+              async (codes) => assetsService.findByCodes(codes as string[]),
+              (a) => a.code || a.id,
             ),
           },
         }),
