@@ -1,9 +1,10 @@
-import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, Repository } from 'typeorm';
 import { TenantUsage, TenantUsageType } from './entities/tenant-usage.entity';
 import { QuotaReportDto, QuotaMetricReportDto } from './dto/quota-report.dto';
 import { QuotaReportRequestDto } from './dto/quota-report-request.dto';
+import { TenantConnectionProvider } from '../../tenancy/tenant-connection.provider';
 
 export interface TenantQuotaRequester {
   id: string;
@@ -24,7 +25,20 @@ export class TenantQuotaService {
   constructor(
     @InjectRepository(TenantUsage)
     private readonly usageRepository: Repository<TenantUsage>,
+    @Optional()
+    private readonly tenantConnection?: TenantConnectionProvider,
   ) {}
+
+  /**
+   * Returns the usage repository scoped to the active tenant's schema when a
+   * tenant connection is available, falling back to the default connection.
+   */
+  private async resolveUsageRepository(): Promise<Repository<TenantUsage>> {
+    if (this.tenantConnection) {
+      return this.tenantConnection.getRepository(TenantUsage);
+    }
+    return this.usageRepository;
+  }
 
   async generateReport(
     requester: TenantQuotaRequester,
@@ -37,7 +51,8 @@ export class TenantQuotaService {
     const periodEnd = request.periodEnd ? new Date(request.periodEnd) : new Date();
     const forecastDays = request.forecastDays ?? this.deriveForecastDays(periodStart, periodEnd);
 
-    const usageRows = await this.usageRepository.find({
+    const usageRepository = await this.resolveUsageRepository();
+    const usageRows = await usageRepository.find({
       where: {
         tenantId,
         recordedAt: Between(periodStart, periodEnd),
