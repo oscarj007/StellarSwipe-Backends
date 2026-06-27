@@ -9,10 +9,21 @@ import {
   HttpStatus,
   ParseUUIDPipe,
   UseGuards,
+  UseInterceptors,
   Request,
 } from '@nestjs/common';
+import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { OwnershipGuard } from '../common/guards/ownership.guard';
+import { CheckOwnership } from '../common/decorators/check-ownership.decorator';
+import { Trade } from './entities/trade.entity';
+import { IdempotencyInterceptor } from '../common/interceptors/idempotency.interceptor';
 import { RateLimit, RateLimitTier } from '../common/decorators/rate-limit.decorator';
+import {
+  ExecuteTradeCommand,
+  CancelTradeCommand,
+  GetTradeStatusQuery,
+} from './cqrs';
 import { TradesService } from './trades.service';
 import { TradeOutcomeService } from './trade-outcome.service';
 import { TradeOutcomeQueryDto } from './dto/trade-outcome-query.dto';
@@ -31,6 +42,7 @@ import {
 import { PaginatedTradeHistoryDto } from './trade-history.service';
 
 @Controller('trades')
+@UseInterceptors(IdempotencyInterceptor)
 export class TradesController {
   constructor(
     private readonly tradesService: TradesService,
@@ -38,6 +50,8 @@ export class TradesController {
     private readonly riskManager: RiskManagerService,
     private readonly partialCloseService: PartialCloseService,
     private readonly tradeOutcomeService: TradeOutcomeService,
+    private readonly commandBus: CommandBus,
+    private readonly queryBus: QueryBus,
   ) { }
 
   /**
@@ -48,7 +62,7 @@ export class TradesController {
   @HttpCode(HttpStatus.CREATED)
   @RateLimit({ tier: RateLimitTier.TRADE })
   async executeTrade(@Body() dto: ExecuteTradeDto): Promise<TradeResultDto> {
-    return this.tradesService.executeTrade(dto);
+    return this.commandBus.execute(new ExecuteTradeCommand(dto));
   }
 
   /**
@@ -70,7 +84,7 @@ export class TradesController {
   @HttpCode(HttpStatus.OK)
   @RateLimit({ tier: RateLimitTier.TRADE })
   async closeTrade(@Body() dto: CloseTradeDto): Promise<CloseTradeResultDto> {
-    return this.tradesService.closeTrade(dto);
+    return this.commandBus.execute(new CancelTradeCommand(dto));
   }
 
   /**
@@ -89,11 +103,13 @@ export class TradesController {
    * GET /trades/:tradeId
    */
   @Get(':tradeId')
+  @UseGuards(JwtAuthGuard, OwnershipGuard)
+  @CheckOwnership('tradeId', Trade)
   async getTradeById(
     @Param('tradeId', ParseUUIDPipe) tradeId: string,
-    @Query('userId', ParseUUIDPipe) userId: string,
+    @Request() req: any,
   ): Promise<TradeDetailsDto> {
-    return this.tradesService.getTradeById(tradeId, userId);
+    return this.queryBus.execute(new GetTradeStatusQuery(tradeId, req.user.id));
   }
 
   /**
@@ -186,7 +202,8 @@ export class TradesController {
    * GET /trades/:tradeId/outcome
    */
   @Get(':tradeId/outcome')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, OwnershipGuard)
+  @CheckOwnership('tradeId', Trade)
   getOutcome(
     @Param('tradeId', ParseUUIDPipe) tradeId: string,
     @Request() req: any,

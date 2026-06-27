@@ -13,6 +13,7 @@ import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { ConfigService } from '@nestjs/config';
 import { Cache } from 'cache-manager';
 import { RATE_LIMIT_KEY, RateLimitConfig, RateLimitTier } from '../decorators/rate-limit.decorator';
+import { SubscriptionsService } from '../../subscriptions/subscriptions.service';
 
 interface RateLimitInfo {
   count: number;
@@ -56,6 +57,7 @@ export class RateLimitGuard implements CanActivate {
     private reflector: Reflector,
     @Inject(CACHE_MANAGER) private cacheManager: Cache,
     @Optional() private configService?: ConfigService,
+    @Optional() private subscriptionsService?: SubscriptionsService,
   ) {
     this.limits = this.buildTierLimits();
     this.accountLimits = this.buildAccountTierLimits();
@@ -99,21 +101,20 @@ export class RateLimitGuard implements CanActivate {
       context.getHandler(),
     );
 
-    if (!config) {
-      return this.checkRateLimit(context, RateLimitTier.AUTHENTICATED);
-    }
+    const resolvedTier = await this.resolveUserTier(context);
+    const effectiveTier = config?.tier || resolvedTier;
 
     // Per-IP check
-    await this.checkRateLimit(context, config.tier, config.limit, config.window);
+    await this.checkRateLimit(context, effectiveTier, config?.limit, config?.window);
 
     // Per-account check when keyBy is specified
-    if (config.keyBy?.length) {
+    if (config?.keyBy?.length) {
       const request = context.switchToHttp().getRequest();
       const accountId = this.extractAccountIdentifier(request, config.keyBy);
       if (accountId) {
         await this.checkAccountLimit(
           context,
-          config.tier,
+          effectiveTier,
           accountId,
           config.accountLimit,
           config.accountWindow,
@@ -122,6 +123,31 @@ export class RateLimitGuard implements CanActivate {
     }
 
     return true;
+  }
+
+  private async resolveUserTier(context: ExecutionContext): Promise<RateLimitTier> {
+    const request = context.switchToHttp().getRequest();
+    const userId = request.user?.id;
+
+    if (!userId || !this.subscriptionsService) {
+      return RateLimitTier.AUTHENTICATED;
+    }
+
+    try {
+      const subscriptions = await this.subscriptionsService.getUserSubscriptions(userId);
+      const activeSubscription = subscriptions.find(sub => sub.status === 'ACTIVE');
+
+      if (activeSubscription) {
+        const tier = activeSubscription.tier;
+        if (tier?.level === 'PREMIUM' || tier?.level === 'PROVIDER') {
+          return RateLimitTier.ADMIN;
+        }
+      }
+
+      return RateLimitTier.AUTHENTICATED;
+    } catch {
+      return RateLimitTier.AUTHENTICATED;
+    }
   }
 
   private async checkRateLimit(

@@ -6,6 +6,7 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
+import { ConfigService } from '@nestjs/config';
 import { LoggerService } from '../logger';
 import { SentryService } from '../sentry';
 import { CORRELATION_ID_HEADER } from '../correlation/correlation-id.store';
@@ -19,6 +20,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     private readonly logger: LoggerService,
     private readonly sentry: SentryService,
     private readonly errorClassifier: ErrorClassificationService,
+    private readonly configService: ConfigService,
   ) {
     this.logger.setContext(GlobalExceptionFilter.name);
   }
@@ -51,7 +53,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 
     // Include details in development mode
     if (
-      process.env.NODE_ENV === 'development' &&
+      this.configService.get<string>('NODE_ENV') === 'development' &&
       classification.originalError
     ) {
       errorResponse.details = {

@@ -2,10 +2,12 @@ import { Module } from '@nestjs/common';
 import { GraphQLModule as NestGraphQLModule } from '@nestjs/graphql';
 import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
 import { APP_FILTER } from '@nestjs/core';
+import { ConfigService } from '@nestjs/config';
 import { join } from 'path';
 import { fieldExtensionsEstimator, simpleEstimator, getComplexity } from 'graphql-query-complexity';
 import { GraphQLSchema } from 'graphql';
 import { Reflector } from '@nestjs/core';
+import { PubSub } from 'graphql-subscriptions';
 
 // ─── Scalars ─────────────────────────────────────────────────────────────────
 import { DateTimeScalar } from './scalars/datetime.scalar';
@@ -27,6 +29,7 @@ import { TradeResolver } from './resolvers/trade.resolver';
 import { PortfolioResolver } from './resolvers/portfolio.resolver';
 import { ProviderResolver } from './resolvers/provider.resolver';
 import { UserResolver } from './resolvers/user.resolver';
+import { SignalSubscriptionResolver } from './signal-subscription.resolver';
 
 // ─── Domain modules ───────────────────────────────────────────────────────────
 import { SignalsModule } from '../signals/signals.module';
@@ -34,6 +37,7 @@ import { TradesModule } from '../trades/trades.module';
 import { PortfolioModule } from '../portfolio/portfolio.module';
 import { ProvidersModule } from '../providers/providers.module';
 import { UsersModule } from '../users/users.module';
+import { AssetsModule } from '../assets/assets.module';
 
 // ─── Utils ────────────────────────────────────────────────────────────────────
 import { createDataLoader, createGroupedDataLoader } from './utils/dataloader-factory';
@@ -43,6 +47,7 @@ import {
 } from './utils/complexity-calculator';
 import { ProvidersService } from '../providers/providers.service';
 import { SignalsService } from '../signals/signals.service';
+import { AssetsService } from '../assets/assets.service';
 
 @Module({
   imports: [
@@ -51,12 +56,18 @@ import { SignalsService } from '../signals/signals.service';
     TradesModule,
     PortfolioModule,
     ProvidersModule,
+    AssetsModule,
     UsersModule,
 
     NestGraphQLModule.forRootAsync<ApolloDriverConfig>({
       driver: ApolloDriver,
-      inject: [ProvidersService, SignalsService],
-      useFactory: (providersService: ProvidersService, signalsService: SignalsService) => ({
+      inject: [ProvidersService, SignalsService, ConfigService, AssetsService],
+      useFactory: (
+        providersService: ProvidersService,
+        signalsService: SignalsService,
+        configService: ConfigService,
+        assetsService: AssetsService,
+      ) => ({
         /**
          * Code-first schema — NestJS generates schema.gql automatically.
          * The file is written to disk so you can inspect or commit it.
@@ -75,6 +86,11 @@ import { SignalsService } from '../signals/signals.service';
             signalsByProviderId: createGroupedDataLoader(
               (providerIds) => signalsService.findByProviderIds(providerIds as string[]),
               (s) => s.providerId,
+            ),
+            // Asset metadata loader (per-request) — batches asset lookups by code
+            assetByCode: createDataLoader(
+              async (codes) => assetsService.findByCodes(codes as string[]),
+              (a) => a.code || a.id,
             ),
           },
         }),
@@ -100,24 +116,23 @@ import { SignalsService } from '../signals/signals.service';
                 `Query complexity ${complexity} exceeds limit of ${limit}. Simplify your query.`,
               );
             }
-            if (process.env.NODE_ENV !== 'production') {
+            if (configService.get<string>('NODE_ENV') !== 'production') {
               console.debug(`[GraphQL] complexity: ${complexity}/${limit}`);
             }
           },
         ],
 
         /** Expose playground in non-production environments */
-        playground: process.env.NODE_ENV !== 'production',
+        playground: configService.get<string>('NODE_ENV') !== 'production',
 
         /** Subscriptions over WS — enable when needed */
         subscriptions: {
-          'graphql-ws': false,
-          'subscriptions-transport-ws': false,
+          'graphql-ws': true,
         },
 
         /** Format errors before returning to client — strip internals in prod */
         formatError: (error) => {
-          const isProd = process.env.NODE_ENV === 'production';
+          const isProd = configService.get<string>('NODE_ENV') === 'production';
           return {
             message: error.message,
             code: error.extensions?.code,
@@ -153,12 +168,16 @@ import { SignalsService } from '../signals/signals.service';
     GqlLoggingPlugin,
     GqlDepthLimitPlugin,
 
+    // PubSub for subscriptions
+    { provide: PubSub, useValue: new PubSub() },
+
     // Resolvers
     SignalResolver,
     TradeResolver,
     PortfolioResolver,
     ProviderResolver,
     UserResolver,
+    SignalSubscriptionResolver,
   ],
 
   exports: [GqlAuthGuard],

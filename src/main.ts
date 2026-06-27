@@ -1,4 +1,5 @@
 import { NestFactory, Reflector } from "@nestjs/core";
+import { MicroserviceOptions, Transport } from "@nestjs/microservices";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import { ConfigService } from "@nestjs/config";
 import { VersioningType } from '@nestjs/common';
@@ -68,10 +69,10 @@ async function bootstrap() {
   app.useGlobalInterceptors(new DeprecationInterceptor(app.get(Reflector)));
 
   // Enable CORS
-  app.enableCors({
-    origin: corsOrigin,
-    credentials: corsCredentials,
-  });
+  // Build CORS options using helper which validates production config
+  const { createCorsOptions } = await import('./common/cors/cors.helper');
+  const corsOptions = createCorsOptions(corsOrigin, corsCredentials, configService.get('app.environment'));
+  app.enableCors(corsOptions);
 
   // Enable compression
   app.use((compression as any)(compressionConfig));
@@ -122,7 +123,7 @@ async function bootstrap() {
 // Global filters
    const errorClassifier = app.get(ErrorClassificationService);
    app.useGlobalFilters(
-     new GlobalExceptionFilter(logger, sentryService, errorClassifier),
+     new GlobalExceptionFilter(logger, sentryService, errorClassifier, configService),
      new I18nValidationExceptionFilter({ detailedErrors: false }),
    );
 
@@ -130,7 +131,7 @@ async function bootstrap() {
   app.useGlobalInterceptors(new DeadlockRetryInterceptor());
   app.useGlobalInterceptors(new TimeoutInterceptor(app.get(Reflector)));
   app.useGlobalInterceptors(
-    new LoggingInterceptor(logger, app.get(CorrelationIdStore)),
+    new LoggingInterceptor(logger, app.get(CorrelationIdStore), configService),
   );
   app.useGlobalInterceptors(new TransformInterceptor());
   app.useGlobalInterceptors(new SensitiveDataInterceptor());
@@ -155,6 +156,15 @@ async function bootstrap() {
 
   const documentV1 = SwaggerModule.createDocument(app, configV1);
   SwaggerModule.setup('api/v1/docs', app, documentV1);
+
+  // Hybrid app: attach TCP microservice listener so notification @MessagePattern
+  // handlers are reachable from other services (e.g. trade service via ClientProxy).
+  const tcpPort = configService.get<number>('NOTIFICATION_TCP_PORT', 3001);
+  app.connectMicroservice<MicroserviceOptions>({
+    transport: Transport.TCP,
+    options: { host: '0.0.0.0', port: tcpPort },
+  });
+  await app.startAllMicroservices();
 
   await app.listen(port, host, () => {
     logger.info(`🚀 StellarSwipe Backend running on http://${host}:${port}`);

@@ -6,7 +6,10 @@ import { ThrottlerModule } from '@nestjs/throttler';
 // import { CacheModule } from '@nestjs/cache-manager';
 import { stellarConfig } from './config/stellar.config';
 import { databaseConfig, redisConfig } from './config/database.config';
-import { connectionPoolConfig } from './database/config/connection-pool.config';
+import {
+  connectionPoolConfig,
+  connectionPoolReplicaConfig,
+} from './database/config/connection-pool.config';
 import { xaiConfig } from './config/xai.config';
 
 import { appConfig, sentryConfig } from './config/app.config';
@@ -99,8 +102,10 @@ import { FreighterModule } from './freighter/freighter.module';
         jwtConfig,
         xaiConfig,
         connectionPoolConfig,
+        connectionPoolReplicaConfig,
         configuration,
       ],
+      // eslint-disable-next-line no-restricted-syntax -- ConfigModule bootstrap runs before the DI container (and ConfigService) exist.
       envFilePath: [`.env.${process.env.NODE_ENV || 'development'}`, '.env'],
       cache: true,
       validationSchema: configSchema,
@@ -136,13 +141,48 @@ import { FreighterModule } from './freighter/freighter.module';
         logging: configService.get<boolean>('database.logging'),
         entities: ['dist/**/*.entity{.ts,.js}'],
         migrations: ['dist/migrations/*{.ts,.js}'],
-        subscribers: ['dist/subscribers/*{.ts,.js}'],
+        subscribers: ['dist/subscribers/*{.ts,.js}', 'dist/common/subscribers/*{.ts,.js}'],
         ssl: configService.get<boolean>('database.ssl') ?? false,
         extra: {
-          min: parseInt(process.env.DATABASE_POOL_MIN || '10', 10),
-          max: parseInt(process.env.DATABASE_POOL_MAX || '30', 10),
-          idleTimeoutMillis: parseInt(process.env.DATABASE_POOL_IDLE_TIMEOUT || '30000', 10),
-          connectionTimeoutMillis: parseInt(process.env.DATABASE_POOL_CONNECTION_TIMEOUT || '2000', 10),
+          min: configService.get<number>('connectionPool.min') ?? 10,
+          max: configService.get<number>('connectionPool.max') ?? 30,
+          idleTimeoutMillis:
+            configService.get<number>('connectionPool.idleTimeoutMillis') ??
+            30000,
+          connectionTimeoutMillis:
+            configService.get<number>(
+              'connectionPool.connectionTimeoutMillis',
+            ) ?? 2000,
+        },
+      }),
+    }),
+
+    TypeOrmModule.forRootAsync({
+      name: 'replica',
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        type: 'postgres' as const,
+        host: configService.get<string>('database.replica.host'),
+        port: configService.get<number>('database.replica.port'),
+        username: configService.get<string>('database.replica.username'),
+        password: configService.get<string>('database.replica.password'),
+        database: configService.get<string>('database.replica.database'),
+        synchronize: false,
+        logging: false,
+        entities: ['dist/**/*.entity{.ts,.js}'],
+        ssl: configService.get<boolean>('database.replica.ssl') ?? false,
+        extra: {
+          min: configService.get<number>('connectionPoolReplica.min') ?? 5,
+          max: configService.get<number>('connectionPoolReplica.max') ?? 20,
+          idleTimeoutMillis:
+            configService.get<number>(
+              'connectionPoolReplica.idleTimeoutMillis',
+            ) ?? 30000,
+          connectionTimeoutMillis:
+            configService.get<number>(
+              'connectionPoolReplica.connectionTimeoutMillis',
+            ) ?? 2000,
         },
       }),
     }),

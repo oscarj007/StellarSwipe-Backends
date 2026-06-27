@@ -1,6 +1,7 @@
 import {
   Injectable,
   Logger,
+  OnModuleInit,
 } from '@nestjs/common';
 import {
   SorobanRpc,
@@ -21,6 +22,7 @@ import {
   ContractEvent,
   ContractResult,
 } from './interfaces/contract-result.interface';
+import { SorobanDiagnosticService } from './soroban-diagnostic.service';
 
 // Optional import for monitoring - will be injected if available
 interface SorobanMonitoringService {
@@ -47,15 +49,36 @@ interface InvokeOptions {
 }
 
 @Injectable()
-export class SorobanService {
+export class SorobanService implements OnModuleInit {
   private readonly logger = new Logger(SorobanService.name);
   private readonly server: SorobanRpc.Server;
 
   constructor(
     private readonly stellarConfig: StellarConfigService,
     private readonly sorobanMonitoring?: SorobanMonitoringService,
+    private readonly diagnosticService: SorobanDiagnosticService,
   ) {
     this.server = new SorobanRpc.Server(this.stellarConfig.sorobanRpcUrl);
+  }
+
+  async onModuleInit(): Promise<void> {
+    try {
+      const startTime = Date.now();
+      const health = await this.withTimeout(
+        this.server.getHealth(),
+        'warmup',
+        5000,
+      );
+      const latency = Date.now() - startTime;
+      this.logger.log(
+        `Soroban RPC warmup completed: ${health.status} (${latency}ms)`,
+      );
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown Soroban warmup error';
+      this.logger.warn(
+        `Soroban RPC warmup failed: ${errorMessage}`,
+      );
+    }
   }
 
   async invokeContract(
@@ -161,6 +184,18 @@ export class SorobanService {
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown Soroban error';
+      
+      // Parse and log diagnostic events if available
+      const diagnosticEvents = this.diagnosticService.parseDiagnosticEvents(
+        (error as Record<string, unknown>)?.events as Array<Record<string, unknown>> || [],
+        sendResponse.hash,
+      );
+      this.diagnosticService.logDiagnosticEvents(diagnosticEvents, {
+        contractId,
+        method,
+        txHash: sendResponse.hash,
+      });
+      
       this.logger.error(
         `Soroban invocation failed for ${contractId}.${method}: ${errorMessage}`,
       );

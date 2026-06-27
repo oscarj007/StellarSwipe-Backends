@@ -18,6 +18,9 @@ import { User } from '../users/entities/user.entity';
 import { OnChainEvent } from './entities/on-chain-event.entity';
 import { OnChainSyncService } from './on-chain-sync.service';
 import { OnChainSyncJob } from './on-chain-sync.job';
+import { FeeBumpModule } from './fee-bump/fee-bump.module';
+import { ClaimableBalanceModule } from './claimable-balance/claimable-balance.module';
+import { SponsoredReservesModule } from './sponsored-reserves/sponsored-reserves.module';
 
 @Module({
   imports: [
@@ -26,6 +29,9 @@ import { OnChainSyncJob } from './on-chain-sync.job';
     CacheModule,
     ScheduleModule.forRoot(),
     TypeOrmModule.forFeature([User, OnChainEvent]),
+    FeeBumpModule,
+    ClaimableBalanceModule,
+    SponsoredReservesModule,
   ],
   controllers: [TrustlineController, HorizonStreamController],
   providers: [
@@ -50,6 +56,9 @@ import { OnChainSyncJob } from './on-chain-sync.job';
     StellarIntegrationService,
     WalletBalanceSyncJob,
     OnChainSyncService,
+    FeeBumpModule,
+    ClaimableBalanceModule,
+    SponsoredReservesModule,
   ],
 })
 export class StellarModule {}
