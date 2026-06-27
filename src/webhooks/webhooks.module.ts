@@ -1,3 +1,4 @@
+
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
@@ -9,6 +10,7 @@ import { SignatureGeneratorService } from './services/signature-generator.servic
 import { WebhookSenderService } from './services/webhook-sender.service';
 import { WebhookEventListener } from './listeners/webhook-event.listener';
 import { StellarCallbackReconciliationJob } from './jobs/stellar-callback-reconciliation.job';
+import { AuditWebhookSecretsJob } from './jobs/audit-webhook-secrets.job';
 
 @Module({
   imports: [
@@ -22,6 +24,7 @@ import { StellarCallbackReconciliationJob } from './jobs/stellar-callback-reconc
     WebhookSenderService,
     WebhookEventListener,
     StellarCallbackReconciliationJob,
+    AuditWebhookSecretsJob,
   ],
   exports: [WebhooksService],
 })
