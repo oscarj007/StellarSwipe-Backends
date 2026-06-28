@@ -6,8 +6,10 @@ import { ContractDeploymentService } from './deployment/contract-deployment.serv
 import { SorobanTransactionBuilderService } from './soroban-transaction-builder.service';
 import { SorobanSimulationService } from './soroban-simulation.service';
 import { SorobanController } from './soroban.controller';
+import { MaxCallDepthModule } from '../common/max-call-depth.module';
 
 @Module({
+  imports: [MaxCallDepthModule],
   controllers: [SorobanController],
   providers: [
     SorobanService,

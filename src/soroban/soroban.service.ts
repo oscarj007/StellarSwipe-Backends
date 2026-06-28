@@ -23,6 +23,7 @@ import {
   ContractResult,
 } from './interfaces/contract-result.interface';
 import { SorobanDiagnosticService } from './soroban-diagnostic.service';
+import { MaxCallDepthService } from '../common/services/max-call-depth.service';
 
 // Optional import for monitoring - will be injected if available
 interface SorobanMonitoringService {
@@ -57,6 +58,7 @@ export class SorobanService implements OnModuleInit {
     private readonly stellarConfig: StellarConfigService,
     private readonly sorobanMonitoring?: SorobanMonitoringService,
     private readonly diagnosticService: SorobanDiagnosticService,
+    private readonly maxCallDepthService?: MaxCallDepthService,
   ) {
     this.server = new SorobanRpc.Server(this.stellarConfig.sorobanRpcUrl);
   }
@@ -103,6 +105,7 @@ export class SorobanService implements OnModuleInit {
       );
     }
 
+    let sendResponse: { status?: string; hash?: string } | undefined;
     try {
       const sourceKeypair = Keypair.fromSecret(options.sourceSecret);
       const sourceAccount =
@@ -127,6 +130,17 @@ export class SorobanService implements OnModuleInit {
         .build();
 
       const simulation = await this.simulateTransaction(transaction);
+
+      if (this.maxCallDepthService) {
+        const depthInfo = this.maxCallDepthService.extractCallDepthFromSimulation(simulation);
+        this.maxCallDepthService.validateDepth(
+          depthInfo.depth,
+          this.stellarConfig.maxCallDepth ?? 5,
+          this.stellarConfig.maxCallDepthViolationPolicy ?? 'reject',
+          `${contractId}.${method}`,
+        );
+      }
+
       const prepared = await this.withTimeout(
         this.server.prepareTransaction(transaction),
         'prepareTransaction',
@@ -135,7 +149,7 @@ export class SorobanService implements OnModuleInit {
 
       prepared.sign(sourceKeypair);
 
-      const sendResponse = await this.withTimeout(
+      sendResponse = await this.withTimeout(
         this.server.sendTransaction(prepared),
         'sendTransaction',
         options.timeoutMs,
@@ -184,16 +198,17 @@ export class SorobanService implements OnModuleInit {
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown Soroban error';
-      
+
       // Parse and log diagnostic events if available
+      const txHash = sendResponse?.hash;
       const diagnosticEvents = this.diagnosticService.parseDiagnosticEvents(
         (error as Record<string, unknown>)?.events as Array<Record<string, unknown>> || [],
-        sendResponse.hash,
+        txHash,
       );
       this.diagnosticService.logDiagnosticEvents(diagnosticEvents, {
         contractId,
         method,
-        txHash: sendResponse.hash,
+        txHash,
       });
       
       this.logger.error(

@@ -16,10 +16,12 @@ import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { buildPaginationLinks } from '../common/pagination/pagination-links.util';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { OwnershipGuard } from '../common/guards/ownership.guard';
+import { MaxCallDepthGuard } from '../common/guards/max-call-depth.guard';
 import { CheckOwnership } from '../common/decorators/check-ownership.decorator';
 import { Trade } from './entities/trade.entity';
 import { IdempotencyInterceptor } from '../common/interceptors/idempotency.interceptor';
 import { RateLimit, RateLimitTier } from '../common/decorators/rate-limit.decorator';
+import { MaxCallDepth } from '../common/decorators/max-call-depth.decorator';
 import {
   ExecuteTradeCommand,
   CancelTradeCommand,
@@ -55,13 +57,15 @@ export class TradesController {
     private readonly queryBus: QueryBus,
   ) { }
 
-  /**
+/**
    * Execute a new trade (swipe right action)
    * POST /trades/execute
    */
   @Post('execute')
   @HttpCode(HttpStatus.CREATED)
   @RateLimit({ tier: RateLimitTier.TRADE })
+  @UseGuards(MaxCallDepthGuard)
+  @MaxCallDepth({ maxDepth: 5, endpoint: 'execute-trade', onViolation: 'reject' })
   async executeTrade(@Body() dto: ExecuteTradeDto): Promise<TradeResultDto> {
     return this.commandBus.execute(new ExecuteTradeCommand(dto));
   }
@@ -84,6 +88,8 @@ export class TradesController {
   @Post('close')
   @HttpCode(HttpStatus.OK)
   @RateLimit({ tier: RateLimitTier.TRADE })
+  @UseGuards(MaxCallDepthGuard)
+  @MaxCallDepth({ maxDepth: 3, endpoint: 'close-trade', onViolation: 'reject' })
   async closeTrade(@Body() dto: CloseTradeDto): Promise<CloseTradeResultDto> {
     return this.commandBus.execute(new CancelTradeCommand(dto));
   }
