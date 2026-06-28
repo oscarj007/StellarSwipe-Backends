@@ -47,6 +47,46 @@ jobs:
       - name: Run linter
         run: npm run lint
 
+      - name: Run migrations (up)
+        run: npm run migration:run
+        env:
+          NODE_ENV: test
+          DATABASE_HOST: localhost
+          DATABASE_PORT: 5432
+          DATABASE_USER: test
+          DATABASE_PASSWORD: test
+          DATABASE_NAME: stellarswipe_test
+
+      - name: Run seeds
+        run: npm run seed
+        env:
+          NODE_ENV: test
+          DATABASE_HOST: localhost
+          DATABASE_PORT: 5432
+          DATABASE_USER: test
+          DATABASE_PASSWORD: test
+          DATABASE_NAME: stellarswipe_test
+
+      - name: Validate migration rollback (down)
+        run: npm run migration:revert
+        env:
+          NODE_ENV: test
+          DATABASE_HOST: localhost
+          DATABASE_PORT: 5432
+          DATABASE_USER: test
+          DATABASE_PASSWORD: test
+          DATABASE_NAME: stellarswipe_test
+
+      - name: Re-apply migration after rollback test
+        run: npm run migration:run
+        env:
+          NODE_ENV: test
+          DATABASE_HOST: localhost
+          DATABASE_PORT: 5432
+          DATABASE_USER: test
+          DATABASE_PASSWORD: test
+          DATABASE_NAME: stellarswipe_test
+
       - name: Run unit tests
         run: npm test -- --coverage --maxWorkers=2
         env:

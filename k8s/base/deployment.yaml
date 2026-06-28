@@ -177,18 +177,20 @@ spec:
               cpu: "500m"
 
           # ── Health probes ─────────────────────────────────────────────────
-          # Startup probe: allow up to 90 s for NestJS DI + DB migration
+          # Startup probe: allow up to 90 s for NestJS DI + DB migration + queue init
           startupProbe:
             httpGet:
-              path: /api/v1/health
+              path: /api/v1/health/healthz
               port: http
             failureThreshold: 18   # 18 × 5s = 90s max startup window
             periodSeconds: 5
 
-          # Liveness: restart the pod if the event loop is stuck
+          # Liveness: restart the pod if the process is stuck.
+          # /healthz is a process-alive check (no dependency checks).
+          # Checking dependencies here would cause restarts on transient failures.
           livenessProbe:
             httpGet:
-              path: /api/v1/health/liveness
+              path: /api/v1/health/healthz
               port: http
             initialDelaySeconds: 0   # startupProbe guards the initial window
             periodSeconds: 10
@@ -196,10 +198,11 @@ spec:
             failureThreshold: 3
             successThreshold: 1
 
-          # Readiness: remove from Service endpoints until warm
+          # Readiness: remove pod from Service endpoints when dependencies are down.
+          # /ready checks database, Redis cache, worker queue, and blockchain services.
           readinessProbe:
             httpGet:
-              path: /api/v1/health/readiness
+              path: /api/v1/health/ready
               port: http
             initialDelaySeconds: 0
             periodSeconds: 5

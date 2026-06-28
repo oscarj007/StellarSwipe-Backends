@@ -1,7 +1,12 @@
 export { IsPublic, PUBLIC_ROUTE } from './public.decorator';
 export {
   RateLimit,
-  RATE_LIMIT,
-  type RateLimitOptions,
+  RATE_LIMIT_KEY,
+  RateLimitTier,
+  type RateLimitConfig,
 } from './rate-limit.decorator';
-export { IsStellarAddress, IsStellarPublicKey } from './is-stellar-address.decorator';
+export {
+  MaxCallDepth,
+  MAX_CALL_DEPTH_KEY,
+  type MaxCallDepthConfig,
+} from './max-call-depth.decorator';

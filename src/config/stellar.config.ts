@@ -33,6 +33,8 @@ export const stellarConfig = registerAs(
       networkPassphrase,
       apiTimeout: parseInt(process.env.STELLAR_API_TIMEOUT || '30000', 10),
       maxRetries: parseInt(process.env.STELLAR_MAX_RETRIES || '3', 10),
+      maxCallDepth: parseInt(process.env.STELLAR_MAX_CALL_DEPTH || '5', 10),
+      maxCallDepthViolationPolicy: (process.env.STELLAR_MAX_CALL_DEPTH_POLICY as 'reject' | 'warn') || 'reject',
     };
   },
 );

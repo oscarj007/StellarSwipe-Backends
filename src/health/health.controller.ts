@@ -9,6 +9,7 @@ import {
   SorobanHealthIndicator,
   DatabaseHealthIndicator,
   RedisHealthIndicator,
+  QueueHealthIndicator,
 } from './indicators';
 import { HealthSummaryService, ServiceHealthSummary } from './health-summary.service';
 import { HealthMetricsAuthGuard } from '../common/guards/health-metrics-auth.guard';
@@ -24,8 +25,9 @@ export class HealthController implements OnApplicationBootstrap {
     private sorobanHealth: SorobanHealthIndicator,
     private databaseHealth: DatabaseHealthIndicator,
     private redisHealth: RedisHealthIndicator,
+    private queueHealth: QueueHealthIndicator,
     private healthSummary: HealthSummaryService,
-  ) { }
+  ) {}
 
   async onApplicationBootstrap(): Promise<void> {
     const maxRetries = 5;
@@ -61,64 +63,69 @@ export class HealthController implements OnApplicationBootstrap {
       () => this.redisHealth.isHealthy('cache'),
       () => this.stellarHealth.isHealthy('stellar'),
       () => this.sorobanHealth.isHealthy('soroban'),
+      () => this.queueHealth.isHealthy('queue'),
     ]);
   }
 
   @Get('stellar')
   @HealthCheck()
   async checkStellar(): Promise<HealthCheckResult> {
-    return this.health.check([
-      () => this.stellarHealth.isHealthy('stellar'),
-    ]);
+    return this.health.check([() => this.stellarHealth.isHealthy('stellar')]);
   }
 
   @Get('soroban')
   @HealthCheck()
   async checkSoroban(): Promise<HealthCheckResult> {
-    return this.health.check([
-      () => this.sorobanHealth.isHealthy('soroban'),
-    ]);
+    return this.health.check([() => this.sorobanHealth.isHealthy('soroban')]);
   }
 
   @Get('db')
   @HealthCheck()
   async checkDatabase(): Promise<HealthCheckResult> {
-    return this.health.check([
-      () => this.databaseHealth.isHealthy('database'),
-    ]);
+    return this.health.check([() => this.databaseHealth.isHealthy('database')]);
   }
 
   @Get('cache')
   @HealthCheck()
   async checkCache(): Promise<HealthCheckResult> {
-    return this.health.check([
-      () => this.redisHealth.isHealthy('cache'),
-    ]);
+    return this.health.check([() => this.redisHealth.isHealthy('cache')]);
   }
 
+  @Get('queue')
+  @HealthCheck()
+  async checkQueue(): Promise<HealthCheckResult> {
+    return this.health.check([() => this.queueHealth.isHealthy('queue')]);
+  }
+
+  /**
+   * Liveness probe: returns 200 as long as the process is running.
+   * A non-empty check would cause unnecessary restarts on transient dependency failures.
+   * Kubernetes uses this to decide whether to RESTART the pod.
+   */
   @Get('liveness')
   @HealthCheck()
   async liveness(): Promise<HealthCheckResult> {
     return this.health.check([]);
   }
 
-  @Get('summary')
-  async getHealthSummary(): Promise<ServiceHealthSummary> {
-    return this.healthSummary.getHealthSummary();
-  }
-
+  /**
+   * Readiness probe: returns 200 only when all critical dependencies are healthy.
+   * Kubernetes uses this to decide whether to SEND TRAFFIC to the pod.
+   * Includes database, cache, and queue — external blockchain services are excluded
+   * to prevent unnecessary traffic removal on transient network issues.
+   */
   @Get('readiness')
   @HealthCheck()
   async readiness(): Promise<HealthCheckResult> {
     return this.health.check([
       () => this.databaseHealth.isHealthy('database'),
       () => this.redisHealth.isHealthy('cache'),
+      () => this.queueHealth.isHealthy('queue'),
     ]);
   }
 
   /**
-   * #530 — /healthz endpoint for Kubernetes liveness probes.
-   * This is a simplified health check that only checks if the app is running.
+   * /healthz — alias for liveness (Kubernetes convention).
    */
   @Get('healthz')
   @HealthCheck()
@@ -127,8 +134,7 @@ export class HealthController implements OnApplicationBootstrap {
   }
 
   /**
-   * #530 — /ready endpoint for Kubernetes readiness probes.
-   * This checks if the backend is ready to accept traffic (DB + cache + external integrations).
+   * /ready — alias for readiness (Kubernetes convention).
    */
   @Get('ready')
   @HealthCheck()
@@ -136,8 +142,14 @@ export class HealthController implements OnApplicationBootstrap {
     return this.health.check([
       () => this.databaseHealth.isHealthy('database'),
       () => this.redisHealth.isHealthy('cache'),
+      () => this.queueHealth.isHealthy('queue'),
       () => this.sorobanHealth.isHealthy('soroban'),
       () => this.stellarHealth.isHealthy('stellar'),
     ]);
+  }
+
+  @Get('summary')
+  async getHealthSummary(): Promise<ServiceHealthSummary> {
+    return this.healthSummary.getHealthSummary();
   }
 }

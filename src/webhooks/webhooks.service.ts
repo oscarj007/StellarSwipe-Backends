@@ -14,10 +14,13 @@ import { RegisterWebhookDto, UpdateWebhookDto } from './dto/register-webhook.dto
 import { WebhookPayload } from './dto/webhook-event.dto';
 import { SignatureGeneratorService } from './services/signature-generator.service';
 import { WebhookSenderService } from './services/webhook-sender.service';
+import { SsrfValidationPipe } from './pipes/ssrf-validation.pipe';
 
 @Injectable()
 export class WebhooksService {
   private readonly logger = new Logger(WebhooksService.name);
+
+  private readonly ssrfPipe = new SsrfValidationPipe();
 
   constructor(
     @InjectRepository(Webhook)
@@ -30,6 +33,7 @@ export class WebhooksService {
 
   async register(userId: string, dto: RegisterWebhookDto): Promise<Webhook> {
     this.validateEvents(dto.events as string[]);
+    await this.ssrfPipe.transform(dto.url);
 
     const secret = this.signatureGenerator.generateSecret();
 
@@ -67,7 +71,10 @@ export class WebhooksService {
       this.validateEvents(dto.events as string[]);
     }
 
-    if (dto.url !== undefined) webhook.url = dto.url;
+    if (dto.url !== undefined) {
+      await this.ssrfPipe.transform(dto.url);
+      webhook.url = dto.url;
+    }
     if (dto.events !== undefined) webhook.events = dto.events as string[];
     if (dto.active !== undefined) {
       webhook.active = dto.active;
@@ -111,6 +118,36 @@ export class WebhooksService {
     if (delivery.webhook.userId !== userId) throw new ForbiddenException();
 
     await this.webhookSender.retryDelivery(deliveryId);
+  }
+
+  async replayToSubscriber(
+    userId: string,
+    deliveryId: string,
+    subscriberWebhookId: string,
+  ): Promise<void> {
+    const delivery = await this.deliveryRepo.findOne({ where: { id: deliveryId } });
+    if (!delivery) throw new NotFoundException(`Delivery not found: ${deliveryId}`);
+
+    const webhook = await this.findOne(userId, subscriberWebhookId);
+
+    const replayPayload = {
+      ...(delivery.payload as any),
+      deliveryId: uuidv4(),
+      isReplay: true,
+      originalDeliveryId: deliveryId,
+    };
+
+    const replayDelivery = this.deliveryRepo.create({
+      webhookId: webhook.id,
+      eventType: delivery.eventType,
+      eventId: `replay:${deliveryId}`,
+      payload: replayPayload,
+      status: 'pending',
+      attempts: 0,
+    });
+    await this.deliveryRepo.save(replayDelivery);
+
+    await this.webhookSender.deliverWebhook(webhook, replayPayload);
   }
 
   async dispatchEvent(

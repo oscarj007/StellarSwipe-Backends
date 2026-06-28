@@ -8,9 +8,7 @@ import {
 import { CacheService, CachePrefix } from './cache.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
-const mockCacheService = {
-  del: jest.fn(),
-};
+const mockCacheService = { del: jest.fn() };
 
 const mockEventEmitter = {
   emit: jest.fn(),
@@ -33,105 +31,119 @@ describe('CacheInvalidationService', () => {
     service = module.get<CacheInvalidationService>(CacheInvalidationService);
   });
 
-  it('should be defined', () => {
-    expect(service).toBeDefined();
+  // ─── Key namespacing ────────────────────────────────────────────────────────
+
+  describe('tenant-namespaced key builders', () => {
+    it('UserCacheKeys.profile is namespaced by tenantId', () => {
+      expect(UserCacheKeys.profile('u1', 'tenant-A')).toContain('tenant-A');
+      expect(UserCacheKeys.profile('u1', 'tenant-A')).toContain('u1');
+    });
+
+    it('AnalyticsCacheKeys.dashboard is namespaced by tenantId and period', () => {
+      const key = AnalyticsCacheKeys.dashboard('tenant-B', 'daily');
+      expect(key).toContain('tenant-B');
+      expect(key).toContain('daily');
+      expect(key).toContain(CachePrefix.ANALYTICS);
+    });
+
+    it('MarketCacheKeys.price is namespaced by tenantId and assetPair', () => {
+      const key = MarketCacheKeys.price('tenant-C', 'XLM-USDC');
+      expect(key).toContain('tenant-C');
+      expect(key).toContain('XLM-USDC');
+      expect(key).toContain(CachePrefix.MARKET);
+    });
   });
 
-  describe('UserCacheKeys', () => {
-    it('profile key includes userId', () => {
-      expect(UserCacheKeys.profile('u1')).toContain('u1');
-    });
-
-    it('preferences key includes userId', () => {
-      expect(UserCacheKeys.preferences('u1')).toContain('u1');
-    });
-
-    it('sessions key includes userId', () => {
-      expect(UserCacheKeys.sessions('u1')).toContain('u1');
-    });
-
-    it('portfolio key uses PORTFOLIO prefix', () => {
-      expect(UserCacheKeys.portfolio('u1')).toContain(CachePrefix.PORTFOLIO);
-    });
-  });
+  // ─── User profile invalidation ──────────────────────────────────────────────
 
   describe('invalidateUser', () => {
-    it('deletes all four user cache keys', async () => {
+    it('deletes profile, preferences, sessions and portfolio keys', async () => {
       mockCacheService.del.mockResolvedValue(undefined);
 
-      await service.invalidateUser('user-1');
+      await service.invalidateUser('user-1', 'tenant-A');
 
       expect(mockCacheService.del).toHaveBeenCalledTimes(4);
-      expect(mockCacheService.del).toHaveBeenCalledWith(
-        UserCacheKeys.profile('user-1'),
-      );
-      expect(mockCacheService.del).toHaveBeenCalledWith(
-        UserCacheKeys.preferences('user-1'),
-      );
-      expect(mockCacheService.del).toHaveBeenCalledWith(
-        UserCacheKeys.sessions('user-1'),
-      );
-      expect(mockCacheService.del).toHaveBeenCalledWith(
-        UserCacheKeys.portfolio('user-1'),
-      );
+      expect(mockCacheService.del).toHaveBeenCalledWith(UserCacheKeys.profile('user-1', 'tenant-A'));
+      expect(mockCacheService.del).toHaveBeenCalledWith(UserCacheKeys.preferences('user-1', 'tenant-A'));
+      expect(mockCacheService.del).toHaveBeenCalledWith(UserCacheKeys.sessions('user-1'));
+      expect(mockCacheService.del).toHaveBeenCalledWith(UserCacheKeys.portfolio('user-1'));
     });
 
-    it('does not throw when cache.del rejects', async () => {
-      mockCacheService.del.mockRejectedValue(new Error('redis down'));
-      await expect(service.invalidateUser('user-1')).rejects.toThrow();
+    it('uses "default" tenant when none supplied', async () => {
+      mockCacheService.del.mockResolvedValue(undefined);
+      await service.invalidateUser('user-2');
+      expect(mockCacheService.del).toHaveBeenCalledWith(UserCacheKeys.profile('user-2', 'default'));
     });
   });
 
   describe('invalidateUserProfile', () => {
-    it('deletes only the profile key', async () => {
+    it('deletes only the profile key (stale profile eviction)', async () => {
       mockCacheService.del.mockResolvedValue(undefined);
-
-      await service.invalidateUserProfile('user-2');
-
+      await service.invalidateUserProfile('user-3', 'tenant-X');
       expect(mockCacheService.del).toHaveBeenCalledTimes(1);
-      expect(mockCacheService.del).toHaveBeenCalledWith(
-        UserCacheKeys.profile('user-2'),
-      );
+      expect(mockCacheService.del).toHaveBeenCalledWith(UserCacheKeys.profile('user-3', 'tenant-X'));
     });
   });
 
   describe('invalidateUserPreferences', () => {
     it('deletes only the preferences key', async () => {
       mockCacheService.del.mockResolvedValue(undefined);
-
-      await service.invalidateUserPreferences('user-3');
-
+      await service.invalidateUserPreferences('user-4', 'tenant-Y');
       expect(mockCacheService.del).toHaveBeenCalledTimes(1);
       expect(mockCacheService.del).toHaveBeenCalledWith(
-        UserCacheKeys.preferences('user-3'),
+        UserCacheKeys.preferences('user-4', 'tenant-Y'),
       );
     });
   });
 
-  describe('invalidateUserSessions', () => {
-    it('deletes only the sessions key', async () => {
+  // ─── Analytics invalidation ─────────────────────────────────────────────────
+
+  describe('invalidateAnalytics', () => {
+    it('deletes the analytics dashboard cache for the given tenant and period', async () => {
       mockCacheService.del.mockResolvedValue(undefined);
-
-      await service.invalidateUserSessions('user-4');
-
+      await service.invalidateAnalytics('tenant-A', 'daily');
       expect(mockCacheService.del).toHaveBeenCalledTimes(1);
       expect(mockCacheService.del).toHaveBeenCalledWith(
-        UserCacheKeys.sessions('user-4'),
+        AnalyticsCacheKeys.dashboard('tenant-A', 'daily'),
+      );
+    });
+
+    it('snapshot invalidation deletes the exact snapshot key', async () => {
+      mockCacheService.del.mockResolvedValue(undefined);
+      await service.invalidateAnalyticsSnapshot('tenant-A', 'daily', '2024-01-01');
+      expect(mockCacheService.del).toHaveBeenCalledWith(
+        AnalyticsCacheKeys.snapshot('tenant-A', 'daily', '2024-01-01'),
       );
     });
   });
+
+  // ─── Market data invalidation ───────────────────────────────────────────────
+
+  describe('invalidateMarketData', () => {
+    it('deletes both price and history cache keys for an asset pair', async () => {
+      mockCacheService.del.mockResolvedValue(undefined);
+      await service.invalidateMarketData('tenant-B', 'XLM-USDC');
+      expect(mockCacheService.del).toHaveBeenCalledTimes(2);
+      expect(mockCacheService.del).toHaveBeenCalledWith(
+        MarketCacheKeys.price('tenant-B', 'XLM-USDC'),
+      );
+      expect(mockCacheService.del).toHaveBeenCalledWith(
+        MarketCacheKeys.history('tenant-B', 'XLM-USDC'),
+      );
+    });
+  });
+
+  // ─── Bulk invalidation ──────────────────────────────────────────────────────
 
   describe('invalidateUsers', () => {
-    it('invalidates all four keys for each user', async () => {
+    it('invalidates 4 keys per user across multiple users', async () => {
       mockCacheService.del.mockResolvedValue(undefined);
-
-      await service.invalidateUsers(['u1', 'u2']);
-
+      await service.invalidateUsers(['u1', 'u2'], 'tenant-A');
       // 4 keys × 2 users = 8 deletions
       expect(mockCacheService.del).toHaveBeenCalledTimes(8);
     });
 
-    it('handles an empty array without error', async () => {
+    it('handles empty array without error', async () => {
       await expect(service.invalidateUsers([])).resolves.toBeUndefined();
       expect(mockCacheService.del).not.toHaveBeenCalled();
     });

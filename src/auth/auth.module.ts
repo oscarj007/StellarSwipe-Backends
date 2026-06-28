@@ -6,6 +6,7 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { WsJwtAuthGuard } from './guards/ws-jwt-auth.guard';
 import { CacheModule } from '@nestjs/cache-manager';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { User } from '../users/entities/user.entity';
@@ -20,6 +21,10 @@ import { AuthAuditService } from './auth-audit.service';
 import { AuditModule } from '../audit-log/audit.module';
 import { SessionManagerService } from './session/session-manager.service';
 import { SessionCleanupService } from './session/session-cleanup.service';
+import { SessionFingerprintService } from './session/session-fingerprint.service';
+import { LoginFingerprint } from './session/entities/login-fingerprint.entity';
+import { EmailModule } from '../email/email.module';
+import { AnomalousLoginListener } from './session/anomalous-login.listener';
 
 @Module({
   imports: [
@@ -36,28 +41,33 @@ import { SessionCleanupService } from './session/session-cleanup.service';
     }),
     CacheModule,
     AuditModule,
-    TypeOrmModule.forFeature([User, SocialConnection, TwoFactor]),
+    TypeOrmModule.forFeature([User, SocialConnection, TwoFactor, LoginFingerprint]),
     UsersModule,
     EmailModule,
   ],
-  controllers: [AuthController, SocialAuthController, TwoFactorController],
+  controllers: [AuthController, SocialAuthController, TwoFactorController, WebauthnController],
   providers: [
     AuthService,
     JwtStrategy,
     JwtAuthGuard,
+    WsJwtAuthGuard,
     TwitterOauthService,
     TwoFactorService,
     AuthAuditService,
     SessionManagerService,
     SessionCleanupService,
+    SessionFingerprintService,
+    AnomalousLoginListener,
   ],
   exports: [
     AuthService,
     JwtAuthGuard,
+    WsJwtAuthGuard,
     TwitterOauthService,
     TwoFactorService,
     AuthAuditService,
     SessionManagerService,
+    SessionFingerprintService,
   ],
 })
 export class AuthModule {}

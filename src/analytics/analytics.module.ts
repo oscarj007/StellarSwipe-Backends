@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
+import { BullModule } from '@nestjs/bull';
 import { AnalyticsController } from './analytics.controller';
 import { AnalyticsService } from './analytics.service';
 import { UserEvent } from './entities/user-event.entity';
@@ -44,6 +45,12 @@ import { UserPreference } from '../users/entities/user-preference.entity';
 import { DriftDetectorService } from './drift-detection/drift-detector.service';
 import { DetectDataDriftJob } from './drift-detection/jobs/detect-data-drift.job';
 import { DriftFinding } from './drift-detection/entities/drift-finding.entity';
+import { AnalyticsReportsController } from './reports/analytics-reports.controller';
+import {
+  AnalyticsReportsService,
+  ANALYTICS_REPORTS_QUEUE,
+} from './reports/analytics-reports.service';
+import { AnalyticsReportsProcessor } from './reports/analytics-reports.processor';
 
 @Module({
   imports: [
@@ -68,9 +75,11 @@ import { DriftFinding } from './drift-detection/entities/drift-finding.entity';
       UserPreference,
       DriftFinding,
     ]),
+    TypeOrmModule.forFeature([UserEvent, MetricSnapshot, Trade, Signal, User], 'replica'),
     ScheduleModule.forRoot(),
     TradePatternsModule,
     JobsModule,
+    BullModule.registerQueue({ name: ANALYTICS_REPORTS_QUEUE }),
   ],
   controllers: [
     AnalyticsController,
@@ -79,6 +88,7 @@ import { DriftFinding } from './drift-detection/entities/drift-finding.entity';
     FunnelController,
     CohortController,
     BehaviorTrackingController,
+    AnalyticsReportsController,
   ],
   providers: [
     AnalyticsService,
@@ -97,6 +107,8 @@ import { DriftFinding } from './drift-detection/entities/drift-finding.entity';
     BehaviorTrackingService,
     DriftDetectorService,
     DetectDataDriftJob,
+    AnalyticsReportsService,
+    AnalyticsReportsProcessor,
   ],
   exports: [
     AnalyticsService,

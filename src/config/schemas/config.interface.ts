@@ -32,6 +32,8 @@ export interface StellarConfig {
   networkPassphrase: string;
   apiTimeout: number;
   maxRetries: number;
+  maxCallDepth: number;
+  maxCallDepthViolationPolicy: 'reject' | 'warn';
 }
 
 export interface RedisConfig {

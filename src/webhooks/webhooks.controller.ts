@@ -83,4 +83,14 @@ export class WebhooksController {
   ) {
     return this.webhooksService.retryDelivery(req.user.id, deliveryId);
   }
+
+  @Post('deliveries/:deliveryId/replay/:webhookId')
+  @HttpCode(HttpStatus.ACCEPTED)
+  replayToSubscriber(
+    @Request() req: { user: { id: string } },
+    @Param('deliveryId', ParseUUIDPipe) deliveryId: string,
+    @Param('webhookId', ParseUUIDPipe) webhookId: string,
+  ) {
+    return this.webhooksService.replayToSubscriber(req.user.id, deliveryId, webhookId);
+  }
 }
