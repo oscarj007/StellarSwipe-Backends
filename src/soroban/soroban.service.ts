@@ -25,6 +25,8 @@ import {
 import { SorobanDiagnosticService } from './soroban-diagnostic.service';
 import { MaxCallDepthService } from '../common/services/max-call-depth.service';
 import { SorobanFeeTrackerService } from '../common/services/soroban-fee-tracker.service';
+import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
+import { EntrypointKilledException } from '../feature-flags/exceptions/entrypoint-killed.exception';
 
 // Optional import for monitoring - will be injected if available
 interface SorobanMonitoringService {
@@ -61,6 +63,7 @@ export class SorobanService implements OnModuleInit {
     private readonly diagnosticService: SorobanDiagnosticService,
     private readonly maxCallDepthService?: MaxCallDepthService,
     private readonly feeTrackerService?: SorobanFeeTrackerService,
+    private readonly featureFlagsService?: FeatureFlagsService,
   ) {
     this.server = new SorobanRpc.Server(this.stellarConfig.sorobanRpcUrl);
   }
@@ -105,6 +108,16 @@ export class SorobanService implements OnModuleInit {
         contractId,
         method,
       );
+    }
+
+    if (this.featureFlagsService) {
+      const accessCheck = await this.featureFlagsService.checkEntrypointAccess(
+        contractId,
+        method,
+      );
+      if (!accessCheck.allowed) {
+        throw new EntrypointKilledException(contractId, method);
+      }
     }
 
     let sendResponse: { status?: string; hash?: string } | undefined;
