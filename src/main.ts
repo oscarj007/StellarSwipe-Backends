@@ -14,6 +14,7 @@ import {
   TimeoutInterceptor,
   SensitiveDataInterceptor,
   ResponseEnvelopeInterceptor,
+  StellarMemoInterceptor,
 } from './common/interceptors';
 import { LoggerService } from './common/logger';
 import { CorrelationIdStore } from './common/correlation/correlation-id.store';
@@ -136,6 +137,7 @@ async function bootstrap() {
   );
   app.useGlobalInterceptors(new ResponseEnvelopeInterceptor(app.get(Reflector)));
   app.useGlobalInterceptors(new SensitiveDataInterceptor());
+  app.useGlobalInterceptors(new StellarMemoInterceptor(app.get(Reflector)));
   app.useGlobalInterceptors(app.get(MetricsInterceptor));
   app.useGlobalInterceptors(app.get(NPlus1DetectionInterceptor));
 

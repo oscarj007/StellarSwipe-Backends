@@ -23,6 +23,7 @@ import { GraphqlExceptionFilter } from './filters/gql-exception.filter';
 import { GqlLoggingPlugin } from './plugins/gql-logging.plugin';
 import { GqlDepthLimitPlugin } from './plugins/gql-depth-limit.plugin';
 import { FieldAuthorizationPlugin } from './plugins/field-auth.plugin';
+import { SlowFieldLoggingPlugin } from './plugins/slow-field-logging.plugin';
 
 // ─── Resolvers ────────────────────────────────────────────────────────────────
 import { SignalResolver } from './resolvers/signal.resolver';
@@ -165,6 +166,7 @@ import { AssetsService } from '../assets/assets.service';
     GqlLoggingPlugin,
     GqlDepthLimitPlugin,
     FieldAuthorizationPlugin,
+    SlowFieldLoggingPlugin,
 
     // PubSub for subscriptions
     { provide: PubSub, useValue: new PubSub() },
