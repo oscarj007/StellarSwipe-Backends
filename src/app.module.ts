@@ -28,6 +28,7 @@ import { ErrorClassificationModule } from './common/error-classification/error-c
 import { CacheModule } from './cache/cache.module';
 import { MaxCallDepthModule } from './common/max-call-depth.module';
 import { IdempotentModule } from './common/idempotent.module';
+import { BullCorrelationModule } from './common/bull/bull-correlation.module';
 
 import { AuthModule } from './auth/auth.module';
 import { AnalyticsModule } from './analytics/analytics.module';
@@ -217,6 +218,7 @@ import { WatchlistModule } from './watchlist/watchlist.module';
     ErrorClassificationModule,
     MaxCallDepthModule,
     IdempotentModule,
+    BullCorrelationModule,
     UsersModule,
     SignalsModule,
     TradesModule,
