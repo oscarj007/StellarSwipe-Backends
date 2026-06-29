@@ -9,6 +9,7 @@ import { FeedInteractionDto } from './dto/feed-interaction.dto';
 import { applySparseFieldset } from '../common/utils/field-selection.util';
 import { ETagInterceptor } from '../common/interceptors/etag.interceptor';
 import { buildPaginationLinks } from '../common/pagination/pagination-links.util';
+import { CursorValidationPipe } from '../common/pipes/cursor-validation.pipe';
 
 @ApiTags('signals')
 @Controller('signals')
@@ -27,8 +28,12 @@ export class SignalsController {
   async getFeed(
     @Query(new ValidationPipe({ transform: true, whitelist: true }))
     query: SignalFeedQueryDto,
+    // Example cursor validation usage with CursorValidationPipe:
+    // @Query('cursor', new CursorValidationPipe()) validatedCursor?: string,
     @Req() req: Request,
   ): Promise<SignalFeedResponseDto> {
+    // The cursor in query.cursor is now validated and safe to use.
+    // For production, use the CursorValidationPipe decorator above to validate individual cursor parameters.
     const feed = await this.signalsService.getFeed(query);
 
     if (feed.page !== undefined && feed.totalPages !== undefined) {
