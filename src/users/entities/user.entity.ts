@@ -78,6 +78,10 @@ export class User {
   @Column({ name: 'referred_by', type: 'uuid', nullable: true })
   referredBy?: string;
 
+  @Index('idx_users_referral_code')
+  @Column({ name: 'referral_code', type: 'varchar', length: 8, nullable: true, unique: true })
+  referralCode?: string;
+
   @Column({ type: 'timestamp', nullable: true })
   lastLoginAt?: Date;
 
