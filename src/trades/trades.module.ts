@@ -47,6 +47,7 @@ import {
   NotificationPreferencesClientService,
   NOTIFICATION_TCP_CLIENT,
 } from './services/notification-preferences-client.service';
+import { CanaryRoutingModule } from './canary/canary-routing.module';
 
 @Module({
   imports: [
@@ -60,6 +61,7 @@ import {
     WebsocketModule,
     AuditModule,
     NotificationsModule,
+    CanaryRoutingModule,
     ClientsModule.registerAsync([
       {
         name: NOTIFICATION_TCP_CLIENT,
