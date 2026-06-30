@@ -11,6 +11,8 @@ import {
   UseGuards,
   UseInterceptors,
   Request,
+  Res,
+  Header,
 } from '@nestjs/common';
 import { ApiResponse } from '@nestjs/swagger';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
@@ -36,6 +38,7 @@ import { RiskManagerService } from './services/risk-manager.service';
 import { ExecuteTradeDto, CloseTradeDto } from './dto/execute-trade.dto';
 import { PartialCloseDto } from './partial-close/dto/partial-close.dto';
 import { PartialCloseService } from './partial-close/partial-close.service';
+import { TradeCsvExportService } from './trade-csv-export.service';
 import {
   TradeResultDto,
   TradeDetailsDto,
@@ -242,5 +245,27 @@ export class TradesController {
   @UseGuards(JwtAuthGuard)
   queryOutcomes(@Query() query: TradeOutcomeQueryDto, @Request() req: any) {
     return this.tradeOutcomeService.queryOutcomes(query, req.user.id);
+  }
+
+  /**
+   * Stream the authenticated user's full trade history as CSV.
+   * GET /trades/export?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
+   */
+  @Get('export')
+  @UseGuards(JwtAuthGuard)
+  @RateLimit({ tier: RateLimitTier.AUTHENTICATED, limit: 5, window: 3600 })
+  @Header('Content-Type', 'text/csv')
+  @Header('Content-Disposition', 'attachment; filename="trade-history.csv"')
+  exportCsv(
+    @Request() req: any,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Res() res?: Response,
+  ): void {
+    const stream = this.tradeCsvExportService.streamUserTrades(
+      req.user.userId ?? req.user.id,
+      { startDate, endDate },
+    );
+    stream.pipe(res!);
   }
 }
